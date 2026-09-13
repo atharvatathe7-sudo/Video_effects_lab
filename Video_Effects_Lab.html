@@ -1,0 +1,1056 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Video Effects Lab</title>
+<style>
+  :root {
+    color-scheme: light;
+    --bg: #f4f5f7;
+    --card: #ffffff;
+    --border: #d9dce1;
+    --text: #1b1f24;
+    --muted: #5b6470;
+    --accent: #2f6fed;
+    --accent-hover: #2559c4;
+    --danger: #c0392b;
+    --ok: #1e8e3e;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+  }
+  .app {
+    max-width: 960px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 22px;
+    margin: 0 0 4px 0;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin: 0 0 20px 0;
+  }
+  section.card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px;
+    margin-bottom: 16px;
+  }
+  section.card h2 {
+    font-size: 15px;
+    margin: 0 0 12px 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  section.card h2 .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    flex: none;
+  }
+  .row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    align-items: flex-end;
+  }
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .field label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+  input[type="number"], select, input[type="file"] {
+    padding: 6px 8px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    background: #fff;
+    color: var(--text);
+  }
+  input[type="number"] { width: 110px; }
+  button {
+    padding: 8px 16px;
+    border-radius: 6px;
+    border: 1px solid var(--accent);
+    background: var(--accent);
+    color: #fff;
+    font-size: 13px;
+    cursor: pointer;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  button.secondary {
+    background: #fff;
+    color: var(--accent);
+  }
+  .videos {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+  }
+  .video-block {
+    flex: 1 1 300px;
+    min-width: 280px;
+  }
+  .video-block h3 {
+    font-size: 12px;
+    color: var(--muted);
+    margin: 0 0 6px 0;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+  video {
+    width: 100%;
+    max-height: 320px;
+    background: #000;
+    border-radius: 6px;
+    display: block;
+  }
+  table.meta {
+    border-collapse: collapse;
+    width: 100%;
+  }
+  table.meta td {
+    padding: 4px 8px 4px 0;
+    vertical-align: top;
+  }
+  table.meta td.k {
+    color: var(--muted);
+    width: 160px;
+  }
+  .progress-wrap {
+    background: #e7e9ec;
+    border-radius: 6px;
+    height: 10px;
+    overflow: hidden;
+    margin-top: 10px;
+  }
+  .progress-bar {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    transition: width 0.15s linear;
+  }
+  .status {
+    margin-top: 10px;
+    font-size: 12.5px;
+    color: var(--muted);
+    white-space: pre-wrap;
+  }
+  .status.error { color: var(--danger); }
+  .status.ok { color: var(--ok); }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 8px;
+  }
+  a.download-link {
+    display: inline-block;
+    margin-top: 10px;
+    padding: 8px 16px;
+    border-radius: 6px;
+    background: var(--ok);
+    color: #fff;
+    text-decoration: none;
+    font-size: 13px;
+  }
+  #logBox {
+    font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+    font-size: 11.5px;
+    background: #0f1115;
+    color: #d7dbe0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    max-height: 160px;
+    overflow-y: auto;
+    white-space: pre-wrap;
+  }
+  .limitations {
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Video Effects Lab</h1>
+  <p class="subtitle">Phase 1 &mdash; deterministic frame-based Screen Shake effect. Runs entirely in this browser tab; the source file is never modified.</p>
+
+  <section class="card" id="section-input">
+    <h2><span class="num">1</span>Video Input</h2>
+    <div class="row">
+      <div class="field">
+        <label for="fileInput">Select a local video file (WebM recommended)</label>
+        <input type="file" id="fileInput" accept="video/*">
+      </div>
+    </div>
+    <p class="hint" id="inputHint">No file loaded yet.</p>
+  </section>
+
+  <section class="card" id="section-preview">
+    <h2><span class="num">2</span>Preview</h2>
+    <div class="videos">
+      <div class="video-block">
+        <h3>Original</h3>
+        <video id="sourceVideo" controls playsinline></video>
+      </div>
+      <div class="video-block">
+        <h3>Processed Result</h3>
+        <video id="processedVideo" controls playsinline></video>
+        <p class="hint" id="processedHint">Not generated yet. Use "Generate Preview" below.</p>
+      </div>
+    </div>
+    <div class="row" style="margin-top:12px;">
+      <button id="previewBtn" disabled>Generate Preview</button>
+    </div>
+    <div class="progress-wrap" id="previewProgressWrap" style="display:none;">
+      <div class="progress-bar" id="previewProgressBar"></div>
+    </div>
+    <div class="status" id="previewStatus"></div>
+  </section>
+
+  <section class="card" id="section-info">
+    <h2><span class="num">3</span>Video Information</h2>
+    <table class="meta">
+      <tr><td class="k">File name</td><td id="infoName">&mdash;</td></tr>
+      <tr><td class="k">File type</td><td id="infoType">&mdash;</td></tr>
+      <tr><td class="k">Duration</td><td id="infoDuration">&mdash;</td></tr>
+      <tr><td class="k">Dimensions</td><td id="infoDimensions">&mdash;</td></tr>
+      <tr><td class="k">Detected frame rate</td><td id="infoFps">&mdash;</td></tr>
+      <tr><td class="k">Output frame rate used</td><td id="infoOutputFps">
+        <input type="number" id="outputFpsInput" min="1" max="120" step="1" value="30" style="width:70px;"> fps
+        <span class="hint" style="margin:0;">(drives the deterministic frame grid for preview/export)</span>
+      </td></tr>
+    </table>
+  </section>
+
+  <section class="card" id="section-shake">
+    <h2><span class="num">4</span>Screen Shake</h2>
+    <div class="checkbox-row" style="margin-bottom:10px;">
+      <input type="checkbox" id="shakeEnabled" checked>
+      <label for="shakeEnabled">Enable Screen Shake</label>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label for="shakeStart">Start time (s)</label>
+        <input type="number" id="shakeStart" min="0" step="0.1" value="0">
+      </div>
+      <div class="field">
+        <label for="shakeDuration">Duration (s)</label>
+        <input type="number" id="shakeDuration" min="0" step="0.1" value="1">
+      </div>
+      <div class="field">
+        <label for="shakeIntensity">Intensity</label>
+        <select id="shakeIntensity">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="shakeFrequency">Frequency</label>
+        <select id="shakeFrequency">
+          <option value="low">Low</option>
+          <option value="medium" selected>Medium</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+    </div>
+    <p class="hint" id="shakeRangeHint"></p>
+  </section>
+
+  <section class="card" id="section-export">
+    <h2><span class="num">5</span>Export</h2>
+    <div class="row">
+      <button id="exportBtn" disabled>Export as WebM</button>
+    </div>
+    <div class="progress-wrap" id="exportProgressWrap" style="display:none;">
+      <div class="progress-bar" id="exportProgressBar"></div>
+    </div>
+    <div class="status" id="exportStatus"></div>
+    <div id="downloadArea"></div>
+    <p class="limitations">
+      <strong>Known Phase 1 limitations:</strong> Audio is not preserved in the exported file (video-only WebM/VP8 track).
+      Frame rate is detected via short sampled playback and rounded to the nearest whole number for the output frame grid;
+      it may not exactly equal the source's true encoded frame rate, especially for variable-frame-rate sources.
+      Requires a Chromium-based browser with WebCodecs (VideoEncoder) support.
+    </p>
+  </section>
+
+  <section class="card">
+    <h2>Log</h2>
+    <div id="logBox"></div>
+  </section>
+</div>
+
+<script>
+'use strict';
+
+/* =========================================================================
+   MODULE: Logging / UI status helpers
+   ========================================================================= */
+const Log = (() => {
+  const box = document.getElementById('logBox');
+  function line(msg, level) {
+    const t = new Date().toISOString().split('T')[1].replace('Z', '');
+    const el = document.createElement('div');
+    el.textContent = '[' + t + '] ' + msg;
+    if (level === 'error') el.style.color = '#ff6b6b';
+    if (level === 'warn') el.style.color = '#f5c451';
+    box.appendChild(el);
+    box.scrollTop = box.scrollHeight;
+  }
+  return {
+    info: (m) => line(m, 'info'),
+    warn: (m) => line(m, 'warn'),
+    error: (m) => line(m, 'error'),
+  };
+})();
+
+function setStatus(elId, text, kind) {
+  const el = document.getElementById(elId);
+  el.textContent = text || '';
+  el.className = 'status' + (kind ? ' ' + kind : '');
+}
+
+/* =========================================================================
+   MODULE: Binary / EBML writing utilities (foundation for the WebM muxer)
+   ========================================================================= */
+const EBML = (() => {
+  function concatBytes(chunks) {
+    let total = 0;
+    for (const c of chunks) total += c.length;
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const c of chunks) { out.set(c, offset); offset += c.length; }
+    return out;
+  }
+
+  // Minimal-length EBML variable-length integer WITH the length-marker bit set.
+  // Used for element size fields and for the SimpleBlock track-number field.
+  function vintEncode(value) {
+    let length = 1;
+    while (length < 8 && value > (Math.pow(2, 7 * length) - 2)) length++;
+    const bytes = new Uint8Array(length);
+    let v = value;
+    for (let i = length - 1; i >= 0; i--) {
+      bytes[i] = v & 0xff;
+      v = Math.floor(v / 256);
+    }
+    bytes[0] |= (1 << (8 - length));
+    return bytes;
+  }
+
+  // 8-byte "unknown size" marker, used for the top-level streamed Segment.
+  const UNKNOWN_SIZE = new Uint8Array([0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
+
+  // Minimal big-endian unsigned integer representation (Matroska "uinteger").
+  function uintBytes(value) {
+    if (value <= 0) return new Uint8Array([0]);
+    const bytes = [];
+    let v = Math.round(value);
+    while (v > 0) { bytes.unshift(v & 0xff); v = Math.floor(v / 256); }
+    return new Uint8Array(bytes);
+  }
+
+  function int16Bytes(value) {
+    const buf = new ArrayBuffer(2);
+    new DataView(buf).setInt16(0, value, false);
+    return new Uint8Array(buf);
+  }
+
+  function floatBytes(value) {
+    const buf = new ArrayBuffer(8);
+    new DataView(buf).setFloat64(0, value, false);
+    return new Uint8Array(buf);
+  }
+
+  function stringBytes(str) {
+    return new TextEncoder().encode(str);
+  }
+
+  // Build a complete element: ID bytes + vint(size) + content bytes.
+  function element(idBytes, contentBytes) {
+    return concatBytes([idBytes, vintEncode(contentBytes.length), contentBytes]);
+  }
+
+  const ID = {
+    EBML: new Uint8Array([0x1a, 0x45, 0xdf, 0xa3]),
+    DocType: new Uint8Array([0x42, 0x82]),
+    DocTypeVersion: new Uint8Array([0x42, 0x87]),
+    DocTypeReadVersion: new Uint8Array([0x42, 0x85]),
+    EBMLVersion: new Uint8Array([0x42, 0x86]),
+    EBMLReadVersion: new Uint8Array([0x42, 0xf7]),
+    EBMLMaxIDLength: new Uint8Array([0x42, 0xf2]),
+    EBMLMaxSizeLength: new Uint8Array([0x42, 0xf3]),
+    Segment: new Uint8Array([0x18, 0x53, 0x80, 0x67]),
+    Info: new Uint8Array([0x15, 0x49, 0xa9, 0x66]),
+    TimecodeScale: new Uint8Array([0x2a, 0xd7, 0xb1]),
+    Duration: new Uint8Array([0x44, 0x89]),
+    MuxingApp: new Uint8Array([0x4d, 0x80]),
+    WritingApp: new Uint8Array([0x57, 0x41]),
+    Tracks: new Uint8Array([0x16, 0x54, 0xae, 0x6b]),
+    TrackEntry: new Uint8Array([0xae]),
+    TrackNumber: new Uint8Array([0xd7]),
+    TrackUID: new Uint8Array([0x73, 0xc5]),
+    TrackType: new Uint8Array([0x83]),
+    CodecID: new Uint8Array([0x86]),
+    Video: new Uint8Array([0xe0]),
+    PixelWidth: new Uint8Array([0xb0]),
+    PixelHeight: new Uint8Array([0xba]),
+    Cluster: new Uint8Array([0x1f, 0x43, 0xb6, 0x75]),
+    Timecode: new Uint8Array([0xe7]),
+    SimpleBlock: new Uint8Array([0xa3]),
+  };
+
+  return { concatBytes, vintEncode, UNKNOWN_SIZE, uintBytes, int16Bytes, floatBytes, stringBytes, element, ID };
+})();
+
+/* =========================================================================
+   MODULE: WebM muxer (video-only, VP8, streamed Segment/Cluster/SimpleBlock)
+   Phase 1 does not preserve audio -- see reported limitation.
+   ========================================================================= */
+class WebMMuxer {
+  constructor({ width, height, codecId, durationMs }) {
+    this.width = width;
+    this.height = height;
+    this.codecId = codecId;
+    this.trackNumber = 1;
+    this.chunks = [];
+    this.currentClusterTimecode = null;
+    this.currentClusterFrames = [];
+    this._writeHeader(durationMs);
+  }
+
+  _writeHeader(durationMs) {
+    const E = EBML;
+    const ebmlHeaderContent = E.concatBytes([
+      E.element(E.ID.DocType, E.stringBytes('webm')),
+      E.element(E.ID.DocTypeVersion, E.uintBytes(4)),
+      E.element(E.ID.DocTypeReadVersion, E.uintBytes(2)),
+      E.element(E.ID.EBMLVersion, E.uintBytes(1)),
+      E.element(E.ID.EBMLReadVersion, E.uintBytes(1)),
+      E.element(E.ID.EBMLMaxIDLength, E.uintBytes(4)),
+      E.element(E.ID.EBMLMaxSizeLength, E.uintBytes(8)),
+    ]);
+    this.chunks.push(E.element(E.ID.EBML, ebmlHeaderContent));
+
+    // Segment: unknown size, streamed (children pushed as siblings follow).
+    this.chunks.push(E.concatBytes([E.ID.Segment, E.UNKNOWN_SIZE]));
+
+    const infoContent = E.concatBytes([
+      E.element(E.ID.TimecodeScale, E.uintBytes(1000000)), // 1 tick = 1 ms
+      E.element(E.ID.Duration, E.floatBytes(durationMs)),
+      E.element(E.ID.MuxingApp, E.stringBytes('VideoEffectsLab')),
+      E.element(E.ID.WritingApp, E.stringBytes('VideoEffectsLab')),
+    ]);
+    this.chunks.push(E.element(E.ID.Info, infoContent));
+
+    const videoContent = E.concatBytes([
+      E.element(E.ID.PixelWidth, E.uintBytes(this.width)),
+      E.element(E.ID.PixelHeight, E.uintBytes(this.height)),
+    ]);
+    const trackEntryContent = E.concatBytes([
+      E.element(E.ID.TrackNumber, E.uintBytes(this.trackNumber)),
+      E.element(E.ID.TrackUID, E.uintBytes(this.trackNumber)),
+      E.element(E.ID.TrackType, E.uintBytes(1)), // 1 = video
+      E.element(E.ID.CodecID, E.stringBytes(this.codecId)),
+      E.element(E.ID.Video, videoContent),
+    ]);
+    this.chunks.push(E.element(E.ID.Tracks, E.element(E.ID.TrackEntry, trackEntryContent)));
+  }
+
+  // timestampUs: frame timestamp in microseconds (matches EncodedVideoChunk.timestamp).
+  addFrame(dataBytes, timestampUs, isKeyframe) {
+    const timecodeMs = Math.round(timestampUs / 1000);
+    if (this.currentClusterTimecode === null) {
+      this._startCluster(timecodeMs);
+    } else {
+      const rel = timecodeMs - this.currentClusterTimecode;
+      // Start a new cluster on keyframes or before the int16 relative-timecode range overflows.
+      if (isKeyframe || rel > 30000) {
+        this._flushCluster();
+        this._startCluster(timecodeMs);
+      }
+    }
+    const rel = timecodeMs - this.currentClusterTimecode;
+    this.currentClusterFrames.push({ rel, isKeyframe, data: dataBytes });
+  }
+
+  _startCluster(timecodeMs) {
+    this.currentClusterTimecode = timecodeMs;
+    this.currentClusterFrames = [];
+  }
+
+  _flushCluster() {
+    if (this.currentClusterTimecode === null || this.currentClusterFrames.length === 0) return;
+    const E = EBML;
+    const pieces = [E.element(E.ID.Timecode, E.uintBytes(this.currentClusterTimecode))];
+    for (const f of this.currentClusterFrames) {
+      const trackVint = E.vintEncode(this.trackNumber);
+      const relBytes = E.int16Bytes(f.rel);
+      const flags = new Uint8Array([f.isKeyframe ? 0x80 : 0x00]);
+      const blockContent = E.concatBytes([trackVint, relBytes, flags, f.data]);
+      pieces.push(E.element(E.ID.SimpleBlock, blockContent));
+    }
+    this.chunks.push(E.element(E.ID.Cluster, E.concatBytes(pieces)));
+    this.currentClusterTimecode = null;
+    this.currentClusterFrames = [];
+  }
+
+  finalize() {
+    this._flushCluster();
+    return new Blob(this.chunks, { type: 'video/webm' });
+  }
+}
+
+/* =========================================================================
+   MODULE: Effect parameter model
+   ========================================================================= */
+const EffectParams = {
+  read() {
+    return {
+      enabled: document.getElementById('shakeEnabled').checked,
+      start: Math.max(0, parseFloat(document.getElementById('shakeStart').value) || 0),
+      duration: Math.max(0, parseFloat(document.getElementById('shakeDuration').value) || 0),
+      intensity: document.getElementById('shakeIntensity').value,
+      frequency: document.getElementById('shakeFrequency').value,
+    };
+  },
+};
+
+/* =========================================================================
+   MODULE: Screen Shake transform (deterministic, timestamp-driven)
+   ========================================================================= */
+const ScreenShakeEffect = (() => {
+  const INTENSITY = {
+    low: { ampPct: 0.012, rotDeg: 0.30 },
+    medium: { ampPct: 0.022, rotDeg: 0.60 },
+    high: { ampPct: 0.035, rotDeg: 1.00 },
+  };
+  const FREQUENCY_HZ = { low: 5, medium: 9, high: 14 };
+
+  function smoothstep(x) {
+    x = Math.max(0, Math.min(1, x));
+    return x * x * (3 - 2 * x);
+  }
+
+  // Smooth 0->1->0 envelope with capped attack/release ramps, deterministic in t.
+  function envelope(t, start, duration) {
+    if (duration <= 0) return 0;
+    const end = start + duration;
+    if (t <= start || t >= end) return 0;
+    const rampTime = Math.min(duration / 2, 0.15);
+    const tIn = t - start;
+    const tOut = end - t;
+    if (tIn < rampTime) return smoothstep(tIn / rampTime);
+    if (tOut < rampTime) return smoothstep(tOut / rampTime);
+    return 1;
+  }
+
+  // Deterministic pseudo-random-looking oscillation built from fixed-phase sine waves.
+  // Same (t, params) always yields the same offsets -- no Math.random / wall clock involved.
+  function rawOffsets(t, freqHz) {
+    const ox = Math.sin(2 * Math.PI * freqHz * t + 0.7) * 0.6 +
+               Math.sin(2 * Math.PI * freqHz * 1.9 * t + 2.1) * 0.4;
+    const oy = Math.sin(2 * Math.PI * freqHz * 1.3 * t + 1.4) * 0.6 +
+               Math.sin(2 * Math.PI * freqHz * 2.3 * t + 4.2) * 0.4;
+    const orot = Math.sin(2 * Math.PI * freqHz * 0.8 * t + 3.3);
+    return { ox, oy, orot };
+  }
+
+  function overscanScale(cfg, width, height) {
+    const minDim = Math.min(width, height);
+    const ampPx = cfg.ampPct * height;
+    const rotMaxRad = cfg.rotDeg * Math.PI / 180;
+    const diag = Math.sqrt(width * width + height * height);
+    const rotDisp = (diag / 2) * Math.sin(rotMaxRad);
+    const margin = (ampPx + rotDisp) * 1.15 + 2; // safety factor + fixed pixel buffer
+    return 1 + (2 * margin) / minDim;
+  }
+
+  // Returns { active:false } outside the effect window (frame must stay pixel-identical),
+  // otherwise { active:true, offsetX, offsetY, rotation, scale } in canvas units/radians.
+  function computeTransform(t, params, width, height) {
+    if (!params.enabled) return { active: false };
+    const env = envelope(t, params.start, params.duration);
+    if (env <= 0) return { active: false };
+    const cfg = INTENSITY[params.intensity] || INTENSITY.medium;
+    const freqHz = FREQUENCY_HZ[params.frequency] || FREQUENCY_HZ.medium;
+    const ampPx = cfg.ampPct * height;
+    const rotMaxRad = cfg.rotDeg * Math.PI / 180;
+    const { ox, oy, orot } = rawOffsets(t, freqHz);
+    return {
+      active: true,
+      offsetX: ox * ampPx * env,
+      offsetY: oy * ampPx * env,
+      rotation: orot * rotMaxRad * env,
+      scale: overscanScale(cfg, width, height),
+    };
+  }
+
+  return { computeTransform, envelope };
+})();
+
+/* =========================================================================
+   MODULE: Input / loading
+   ========================================================================= */
+const sourceVideo = document.getElementById('sourceVideo');
+const processedVideo = document.getElementById('processedVideo');
+const fileInput = document.getElementById('fileInput');
+const previewBtn = document.getElementById('previewBtn');
+const exportBtn = document.getElementById('exportBtn');
+
+let currentFile = null;
+let currentObjectURL = null;
+let meta = null; // { name, type, duration, width, height, detectedFps }
+
+fileInput.addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  await loadFile(file);
+});
+
+async function loadFile(file) {
+  try {
+    setStatus('previewStatus', '');
+    setStatus('exportStatus', '');
+    document.getElementById('downloadArea').innerHTML = '';
+    previewBtn.disabled = true;
+    exportBtn.disabled = true;
+    processedVideo.removeAttribute('src');
+    document.getElementById('processedHint').textContent = 'Not generated yet. Use "Generate Preview" below.';
+
+    currentFile = file;
+    if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+    currentObjectURL = URL.createObjectURL(file); // source file itself is never modified, only read
+    sourceVideo.src = currentObjectURL;
+    document.getElementById('inputHint').textContent = 'Loaded: ' + file.name + ' (' + formatBytes(file.size) + ')';
+    Log.info('Loaded file: ' + file.name + ' type=' + (file.type || 'unknown'));
+
+    await Metadata.detect(file, sourceVideo);
+    previewBtn.disabled = false;
+    exportBtn.disabled = false;
+  } catch (err) {
+    Log.error('Failed to load file: ' + err.message);
+    setStatus('previewStatus', 'Failed to load file: ' + err.message, 'error');
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
+/* =========================================================================
+   MODULE: Metadata detection (duration/width/height/fps/type)
+   ========================================================================= */
+const Metadata = (() => {
+  function waitForLoadedMetadata(video) {
+    return new Promise((resolve, reject) => {
+      if (video.readyState >= 1) { resolve(); return; }
+      const onLoaded = () => { cleanup(); resolve(); };
+      const onError = () => { cleanup(); reject(new Error('Could not read video metadata (unsupported/corrupt file?)')); };
+      function cleanup() {
+        video.removeEventListener('loadedmetadata', onLoaded);
+        video.removeEventListener('error', onError);
+      }
+      video.addEventListener('loadedmetadata', onLoaded);
+      video.addEventListener('error', onError);
+    });
+  }
+
+  // Estimates FPS from a short sampled playback window using requestVideoFrameCallback,
+  // which reports the true presented media time per frame (not wall-clock/rAF timing).
+  // This is a best-effort estimate: browsers do not expose an exact source frame rate
+  // for arbitrary WebM files via the HTMLVideoElement API.
+  function estimateFps(video) {
+    return new Promise((resolve) => {
+      if (typeof video.requestVideoFrameCallback !== 'function') {
+        resolve(null);
+        return;
+      }
+      let count = 0;
+      let firstMediaTime = null;
+      let lastMediaTime = null;
+      let finished = false;
+      const maxSamples = 45;
+      const wasMuted = video.muted;
+      video.muted = true;
+
+      function finish() {
+        if (finished) return;
+        finished = true;
+        video.pause();
+        video.currentTime = 0;
+        video.muted = wasMuted;
+        clearTimeout(safetyTimer);
+        if (count >= 4 && lastMediaTime > firstMediaTime) {
+          resolve((count - 1) / (lastMediaTime - firstMediaTime));
+        } else {
+          resolve(null);
+        }
+      }
+
+      function onFrame(now, metadata) {
+        if (finished) return;
+        if (firstMediaTime === null) firstMediaTime = metadata.mediaTime;
+        lastMediaTime = metadata.mediaTime;
+        count++;
+        if (count < maxSamples && !video.paused && !video.ended) {
+          video.requestVideoFrameCallback(onFrame);
+        } else {
+          finish();
+        }
+      }
+
+      const safetyTimer = setTimeout(finish, 1800);
+      video.currentTime = 0;
+      video.play().then(() => {
+        video.requestVideoFrameCallback(onFrame);
+      }).catch(() => finish());
+    });
+  }
+
+  async function detect(file, video) {
+    await waitForLoadedMetadata(video);
+    const width = video.videoWidth;
+    const height = video.videoHeight;
+    const duration = video.duration;
+    Log.info('Metadata loaded: ' + width + 'x' + height + ', duration=' + duration.toFixed(3) + 's');
+
+    document.getElementById('infoName').textContent = file.name;
+    document.getElementById('infoType').textContent = file.type || '(unknown - guessed from extension: ' + guessTypeFromName(file.name) + ')';
+    document.getElementById('infoDuration').textContent = duration.toFixed(3) + ' s';
+    document.getElementById('infoDimensions').textContent = width + ' x ' + height + ' px';
+    document.getElementById('infoFps').textContent = 'Detecting...';
+
+    const detectedFps = await estimateFps(video);
+    let fpsText;
+    let outputFpsDefault;
+    if (detectedFps && isFinite(detectedFps) && detectedFps > 1) {
+      fpsText = detectedFps.toFixed(2) + ' fps (estimated from sampled playback)';
+      outputFpsDefault = Math.round(detectedFps);
+    } else {
+      fpsText = 'Not reliably detected (requestVideoFrameCallback unavailable or sample too short)';
+      outputFpsDefault = 30;
+      Log.warn('FPS could not be reliably detected; defaulting output frame rate to 30.');
+    }
+    document.getElementById('infoFps').textContent = fpsText;
+    document.getElementById('outputFpsInput').value = outputFpsDefault;
+
+    meta = { name: file.name, type: file.type || guessTypeFromName(file.name), duration, width, height, detectedFps };
+    updateShakeRangeHint();
+    return meta;
+  }
+
+  function guessTypeFromName(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const map = { webm: 'video/webm', mp4: 'video/mp4', mov: 'video/quicktime', ogv: 'video/ogg' };
+    return map[ext] || 'unknown';
+  }
+
+  return { detect };
+})();
+
+/* =========================================================================
+   MODULE: Frame source (deterministic, timestamp-driven decode via seeking)
+   Rationale: browsers expose no built-in WebM demuxer API, and WebCodecs
+   VideoDecoder requires the caller to supply already-demuxed encoded chunks.
+   Writing/bundling a full Matroska demuxer is out of scope for a dependency
+   -free single HTML file. Seeking the <video> element to an exact timestamp
+   and reading the decoded frame via canvas drawImage() uses the browser's
+   real decoder and gives frame-accurate, timestamp-addressable access
+   without relying on wall-clock playback or screen/tab capture.
+   Limitation: seek precision depends on the browser's decoder; extremely
+   fast scrubbing across many frames is therefore slower than a native
+   demux+decode pipeline would be, trading raw speed for reliability.
+   ========================================================================= */
+function seekVideoTo(video, t) {
+  return new Promise((resolve, reject) => {
+    const tolerance = 0.0005;
+    if (Math.abs(video.currentTime - t) < tolerance) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    function cleanup() {
+      video.removeEventListener('seeked', onSeeked);
+      video.removeEventListener('error', onError);
+      clearTimeout(timer);
+    }
+    function onSeeked() { if (settled) return; settled = true; cleanup(); resolve(); }
+    function onError() { if (settled) return; settled = true; cleanup(); reject(new Error('Video seek error at t=' + t)); }
+    // Safety fallback: never hang the pipeline indefinitely on a stalled seek.
+    const timer = setTimeout(() => { if (settled) return; settled = true; cleanup(); resolve(); }, 4000);
+    video.addEventListener('seeked', onSeeked);
+    video.addEventListener('error', onError);
+    video.currentTime = t;
+  });
+}
+
+/* =========================================================================
+   MODULE: Frame processing engine (shared by Preview and Export)
+   Deterministic: every output frame's transform is a pure function of its
+   timestamp, never of wall-clock time, so processing stalls or slow
+   hardware change how long processing takes but never which transform is
+   applied to which frame.
+   ========================================================================= */
+function estimateBitrate(width, height, fps) {
+  const pixels = width * height;
+  const bitsPerPixelPerFrame = 0.10;
+  return Math.max(500000, Math.round(pixels * fps * bitsPerPixelPerFrame));
+}
+
+async function renderEffect({ video, width, height, duration, outputFps, shakeParams, onProgress }) {
+  if (typeof VideoEncoder === 'undefined') {
+    throw new Error('WebCodecs VideoEncoder is not available in this browser. Video Effects Lab requires a recent desktop Chrome.');
+  }
+
+  const codecId = 'V_VP8';
+  const encoderConfig = {
+    codec: 'vp8',
+    width,
+    height,
+    bitrate: estimateBitrate(width, height, outputFps),
+    framerate: outputFps,
+  };
+  const support = await VideoEncoder.isConfigSupported(encoderConfig);
+  if (!support.supported) {
+    throw new Error('This browser does not support VP8 encoding via WebCodecs.');
+  }
+
+  const totalFrames = Math.max(1, Math.round(duration * outputFps));
+  const frameDurationUs = Math.round(1e6 / outputFps);
+  const muxer = new WebMMuxer({ width, height, codecId, durationMs: duration * 1000 });
+
+  const srcCanvas = document.createElement('canvas');
+  srcCanvas.width = width;
+  srcCanvas.height = height;
+  const srcCtx = srcCanvas.getContext('2d', { alpha: false });
+
+  const outCanvas = document.createElement('canvas');
+  outCanvas.width = width;
+  outCanvas.height = height;
+  const outCtx = outCanvas.getContext('2d', { alpha: false });
+
+  let encodeError = null;
+  const encoder = new VideoEncoder({
+    output: (chunk) => {
+      const data = new Uint8Array(chunk.byteLength);
+      chunk.copyTo(data);
+      muxer.addFrame(data, chunk.timestamp, chunk.type === 'key');
+    },
+    error: (e) => { encodeError = e; },
+  });
+  encoder.configure(encoderConfig);
+
+  video.pause();
+  const keyframeInterval = Math.max(1, Math.round(outputFps * 2));
+  const lastValidTime = Math.max(0, duration - (1 / outputFps) / 2);
+
+  for (let i = 0; i < totalFrames; i++) {
+    if (encodeError) throw encodeError;
+    const t = Math.min(i / outputFps, lastValidTime);
+
+    await seekVideoTo(video, t);
+    srcCtx.drawImage(video, 0, 0, width, height);
+
+    const transform = ScreenShakeEffect.computeTransform(t, shakeParams, width, height);
+    outCtx.setTransform(1, 0, 0, 1, 0, 0);
+    outCtx.clearRect(0, 0, width, height);
+    if (transform.active) {
+      outCtx.save();
+      outCtx.translate(width / 2 + transform.offsetX, height / 2 + transform.offsetY);
+      outCtx.rotate(transform.rotation);
+      outCtx.scale(transform.scale, transform.scale);
+      outCtx.translate(-width / 2, -height / 2);
+      outCtx.drawImage(srcCanvas, 0, 0, width, height);
+      outCtx.restore();
+    } else {
+      outCtx.drawImage(srcCanvas, 0, 0, width, height);
+    }
+
+    if (encoder.encodeQueueSize > 8) {
+      await new Promise((resolve) => {
+        const onDequeue = () => { encoder.removeEventListener('dequeue', onDequeue); resolve(); };
+        encoder.addEventListener('dequeue', onDequeue);
+      });
+    }
+
+    const timestampUs = i * frameDurationUs;
+    const vf = new VideoFrame(outCanvas, { timestamp: timestampUs, duration: frameDurationUs });
+    const keyFrame = (i % keyframeInterval === 0);
+    encoder.encode(vf, { keyFrame });
+    vf.close();
+
+    if (onProgress) onProgress((i + 1) / totalFrames);
+  }
+
+  await encoder.flush();
+  encoder.close();
+  if (encodeError) throw encodeError;
+  return muxer.finalize();
+}
+
+/* =========================================================================
+   MODULE: UI state / wiring
+   ========================================================================= */
+function updateShakeRangeHint() {
+  if (!meta) return;
+  const p = EffectParams.read();
+  const end = p.start + p.duration;
+  const hint = document.getElementById('shakeRangeHint');
+  if (p.duration <= 0) {
+    hint.textContent = 'Duration is 0 -- Screen Shake will have no visible effect.';
+  } else if (p.start >= meta.duration) {
+    hint.textContent = 'Warning: start time is at or beyond the video duration (' + meta.duration.toFixed(2) + 's) -- shake will never trigger.';
+  } else if (end > meta.duration) {
+    hint.textContent = 'Note: effect window extends to ' + end.toFixed(2) + 's, past the video end (' + meta.duration.toFixed(2) + 's); it will be clipped.';
+  } else {
+    hint.textContent = 'Effect window: ' + p.start.toFixed(2) + 's -> ' + end.toFixed(2) + 's.';
+  }
+}
+['shakeEnabled', 'shakeStart', 'shakeDuration', 'shakeIntensity', 'shakeFrequency'].forEach((id) => {
+  document.getElementById(id).addEventListener('input', updateShakeRangeHint);
+  document.getElementById(id).addEventListener('change', updateShakeRangeHint);
+});
+
+function currentOutputFps() {
+  const v = parseInt(document.getElementById('outputFpsInput').value, 10);
+  return (v && v > 0) ? v : 30;
+}
+
+let busy = false;
+
+previewBtn.addEventListener('click', async () => {
+  if (busy || !meta) return;
+  busy = true;
+  previewBtn.disabled = true;
+  exportBtn.disabled = true;
+  document.getElementById('previewProgressWrap').style.display = 'block';
+  setStatus('previewStatus', 'Rendering deterministic preview...');
+  const bar = document.getElementById('previewProgressBar');
+  bar.style.width = '0%';
+  try {
+    const shakeParams = EffectParams.read();
+    const outputFps = currentOutputFps();
+    const startTs = performance.now();
+    const blob = await renderEffect({
+      video: sourceVideo,
+      width: meta.width,
+      height: meta.height,
+      duration: meta.duration,
+      outputFps,
+      shakeParams,
+      onProgress: (frac) => { bar.style.width = (frac * 100).toFixed(1) + '%'; },
+    });
+    const elapsed = ((performance.now() - startTs) / 1000).toFixed(1);
+    const url = URL.createObjectURL(blob);
+    processedVideo.src = url;
+    document.getElementById('processedHint').textContent =
+      'Preview generated (' + formatBytes(blob.size) + ', ' + elapsed + 's to render, video-only, no audio).';
+    setStatus('previewStatus', 'Preview ready.', 'ok');
+    Log.info('Preview rendered: ' + formatBytes(blob.size) + ' in ' + elapsed + 's');
+  } catch (err) {
+    setStatus('previewStatus', 'Preview failed: ' + err.message, 'error');
+    Log.error('Preview failed: ' + err.message);
+  } finally {
+    busy = false;
+    previewBtn.disabled = false;
+    exportBtn.disabled = false;
+    sourceVideo.pause();
+  }
+});
+
+exportBtn.addEventListener('click', async () => {
+  if (busy || !meta) return;
+  busy = true;
+  previewBtn.disabled = true;
+  exportBtn.disabled = true;
+  document.getElementById('exportProgressWrap').style.display = 'block';
+  document.getElementById('downloadArea').innerHTML = '';
+  setStatus('exportStatus', 'Rendering final export...');
+  const bar = document.getElementById('exportProgressBar');
+  bar.style.width = '0%';
+  try {
+    const shakeParams = EffectParams.read();
+    const outputFps = currentOutputFps();
+    const startTs = performance.now();
+    const blob = await renderEffect({
+      video: sourceVideo,
+      width: meta.width,
+      height: meta.height,
+      duration: meta.duration,
+      outputFps,
+      shakeParams,
+      onProgress: (frac) => { bar.style.width = (frac * 100).toFixed(1) + '%'; },
+    });
+    const elapsed = ((performance.now() - startTs) / 1000).toFixed(1);
+    const url = URL.createObjectURL(blob);
+    const baseName = (meta.name || 'video').replace(/\.[^/.]+$/, '');
+    const outName = baseName + '_effects.webm';
+
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = outName;
+    link.className = 'download-link';
+    link.textContent = 'Download ' + outName + ' (' + formatBytes(blob.size) + ')';
+    document.getElementById('downloadArea').appendChild(link);
+    link.click(); // auto-trigger the save; the link also stays as a manual fallback/re-download
+
+    setStatus('exportStatus', 'Export complete in ' + elapsed + 's. Download started automatically (use the link below if it did not). Audio was not preserved (see limitations).', 'ok');
+    Log.info('Export rendered: ' + formatBytes(blob.size) + ' in ' + elapsed + 's, output=' + outName);
+  } catch (err) {
+    setStatus('exportStatus', 'Export failed: ' + err.message, 'error');
+    Log.error('Export failed: ' + err.message);
+  } finally {
+    busy = false;
+    previewBtn.disabled = false;
+    exportBtn.disabled = false;
+    sourceVideo.pause();
+  }
+});
+
+/* Startup feature check */
+(function checkSupport() {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
+    Log.error('WebCodecs (VideoEncoder/VideoFrame) is not available. This browser cannot run Video Effects Lab. Use a recent desktop Google Chrome.');
+    setStatus('exportStatus', 'WebCodecs is not available in this browser. Please use a recent desktop Google Chrome.', 'error');
+  } else {
+    Log.info('WebCodecs available. Ready.');
+  }
+})();
+</script>
+</body>
+</html>
