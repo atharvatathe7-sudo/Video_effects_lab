@@ -16,6 +16,7 @@
     --accent-hover: #2559c4;
     --danger: #c0392b;
     --ok: #1e8e3e;
+    --sel: #e8f0fe;
   }
   * { box-sizing: border-box; }
   body {
@@ -27,18 +28,9 @@
     font-size: 14px;
     line-height: 1.5;
   }
-  .app {
-    max-width: 960px;
-    margin: 0 auto;
-  }
-  h1 {
-    font-size: 22px;
-    margin: 0 0 4px 0;
-  }
-  .subtitle {
-    color: var(--muted);
-    margin: 0 0 20px 0;
-  }
+  .app { max-width: 1000px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px 0; }
+  .subtitle { color: var(--muted); margin: 0 0 20px 0; }
   section.card {
     background: var(--card);
     border: 1px solid var(--border);
@@ -57,29 +49,17 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 20px;
-    height: 20px;
+    width: 20px; height: 20px;
     border-radius: 50%;
     background: var(--accent);
     color: #fff;
     font-size: 11px;
     flex: none;
   }
-  .row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 16px;
-    align-items: flex-end;
-  }
-  .field {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-  .field label {
-    font-size: 12px;
-    color: var(--muted);
-  }
+  h3 { font-size: 13px; margin: 16px 0 8px 0; }
+  .row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: var(--muted); }
   input[type="number"], select, input[type="file"] {
     padding: 6px 8px;
     border: 1px solid var(--border);
@@ -99,114 +79,75 @@
     cursor: pointer;
   }
   button:hover:not(:disabled) { background: var(--accent-hover); }
-  button:disabled {
-    opacity: 0.5;
-    cursor: not-allowed;
-  }
-  button.secondary {
-    background: #fff;
-    color: var(--accent);
-  }
-  .videos {
-    display: flex;
-    gap: 20px;
-    flex-wrap: wrap;
-  }
-  .video-block {
-    flex: 1 1 300px;
-    min-width: 280px;
-  }
-  .video-block h3 {
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+  button.secondary { background: #fff; color: var(--accent); }
+  button.tiny {
+    padding: 3px 9px;
     font-size: 12px;
+    background: #fff;
     color: var(--muted);
-    margin: 0 0 6px 0;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
+    border-color: var(--border);
   }
-  video {
-    width: 100%;
-    max-height: 320px;
-    background: #000;
-    border-radius: 6px;
-    display: block;
+  button.tiny.danger { color: var(--danger); }
+  button.tiny:hover:not(:disabled) { background: #f0f2f5; }
+  .videos { display: flex; gap: 20px; flex-wrap: wrap; }
+  .video-block { flex: 1 1 320px; min-width: 280px; }
+  .video-block h3 {
+    font-size: 12px; color: var(--muted); margin: 0 0 6px 0;
+    text-transform: uppercase; letter-spacing: 0.03em;
   }
-  table.meta {
-    border-collapse: collapse;
-    width: 100%;
+  video { width: 100%; max-height: 320px; background: #000; border-radius: 6px; display: block; }
+  table.meta { border-collapse: collapse; width: 100%; }
+  table.meta td { padding: 4px 8px 4px 0; vertical-align: top; }
+  table.meta td.k { color: var(--muted); width: 175px; }
+  table.fxlist { border-collapse: collapse; width: 100%; font-size: 13px; }
+  table.fxlist th {
+    text-align: left; font-size: 11px; color: var(--muted); font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.03em;
+    border-bottom: 1px solid var(--border); padding: 6px 8px;
   }
-  table.meta td {
-    padding: 4px 8px 4px 0;
-    vertical-align: top;
+  table.fxlist td { padding: 6px 8px; border-bottom: 1px solid #eceef1; vertical-align: middle; }
+  table.fxlist tr.selected td { background: var(--sel); }
+  table.fxlist tr.clickable { cursor: pointer; }
+  table.fxlist tr.disabled td.fxname, table.fxlist tr.disabled td.fxtime, table.fxlist tr.disabled td.fxparams {
+    opacity: 0.45; text-decoration: line-through;
   }
-  table.meta td.k {
-    color: var(--muted);
-    width: 160px;
-  }
-  .progress-wrap {
-    background: #e7e9ec;
-    border-radius: 6px;
-    height: 10px;
-    overflow: hidden;
-    margin-top: 10px;
-  }
-  .progress-bar {
-    height: 100%;
-    width: 0%;
-    background: var(--accent);
-    transition: width 0.15s linear;
-  }
-  .status {
-    margin-top: 10px;
-    font-size: 12.5px;
-    color: var(--muted);
-    white-space: pre-wrap;
-  }
+  td.fxname { font-weight: 600; }
+  td.warn { color: var(--danger); font-size: 12px; }
+  .progress-wrap { background: #e7e9ec; border-radius: 6px; height: 10px; overflow: hidden; margin-top: 10px; }
+  .progress-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.15s linear; }
+  .status { margin-top: 10px; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
   .status.error { color: var(--danger); }
   .status.ok { color: var(--ok); }
-  .checkbox-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .editor {
+    margin-top: 14px; padding: 14px; border: 1px solid var(--border);
+    border-radius: 8px; background: #fbfcfd;
   }
-  .hint {
-    font-size: 12px;
-    color: var(--muted);
-    margin-top: 8px;
-  }
+  .editor.empty { color: var(--muted); font-size: 12.5px; }
   a.download-link {
-    display: inline-block;
-    margin-top: 10px;
-    padding: 8px 16px;
-    border-radius: 6px;
-    background: var(--ok);
-    color: #fff;
-    text-decoration: none;
-    font-size: 13px;
+    display: inline-block; margin-top: 10px; padding: 8px 16px;
+    border-radius: 6px; background: var(--ok); color: #fff;
+    text-decoration: none; font-size: 13px;
   }
   #logBox {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-size: 11.5px;
-    background: #0f1115;
-    color: #d7dbe0;
-    border-radius: 8px;
-    padding: 10px 12px;
-    max-height: 160px;
-    overflow-y: auto;
-    white-space: pre-wrap;
+    font-size: 11.5px; background: #0f1115; color: #d7dbe0;
+    border-radius: 8px; padding: 10px 12px; max-height: 170px;
+    overflow-y: auto; white-space: pre-wrap;
   }
-  .limitations {
-    font-size: 12.5px;
-    color: var(--muted);
-  }
+  .limitations { font-size: 12.5px; color: var(--muted); }
+  .empty-msg { color: var(--muted); font-size: 12.5px; padding: 10px 0; }
 </style>
 </head>
 <body>
 <div class="app">
   <h1>Video Effects Lab</h1>
-  <p class="subtitle">Phase 1 &mdash; deterministic frame-based Screen Shake effect. Runs entirely in this browser tab; the source file is never modified.</p>
+  <p class="subtitle">Deterministic, frame-accurate visual effects for short clips. Runs entirely in this browser tab; your source file is never modified.</p>
 
-  <section class="card" id="section-input">
-    <h2><span class="num">1</span>Video Input</h2>
+  <!-- ================= 1. VIDEO ================= -->
+  <section class="card">
+    <h2><span class="num">1</span>Video</h2>
     <div class="row">
       <div class="field">
         <label for="fileInput">Select a local video file (WebM recommended)</label>
@@ -214,23 +155,67 @@
       </div>
     </div>
     <p class="hint" id="inputHint">No file loaded yet.</p>
+    <table class="meta" style="margin-top:12px;">
+      <tr><td class="k">File name</td><td id="infoName">&mdash;</td></tr>
+      <tr><td class="k">File type</td><td id="infoType">&mdash;</td></tr>
+      <tr><td class="k">Source duration</td><td id="infoDuration">&mdash;</td></tr>
+      <tr><td class="k">Dimensions</td><td id="infoDimensions">&mdash;</td></tr>
+      <tr><td class="k">Detected frame rate</td><td id="infoFps">&mdash;</td></tr>
+      <tr><td class="k">Output frame rate used</td><td>
+        <input type="number" id="outputFpsInput" min="1" max="120" step="1" value="30" style="width:70px;"> fps
+        <span class="hint" style="margin:0;">(drives the deterministic output frame grid)</span>
+      </td></tr>
+      <tr><td class="k">Output duration</td><td id="infoOutputDuration">&mdash;</td></tr>
+    </table>
   </section>
 
-  <section class="card" id="section-preview">
-    <h2><span class="num">2</span>Preview</h2>
+  <!-- ================= 2. EFFECTS ================= -->
+  <section class="card">
+    <h2><span class="num">2</span>Effects</h2>
+    <div class="row">
+      <div class="field">
+        <label for="addEffectType">Effect type</label>
+        <select id="addEffectType"></select>
+      </div>
+      <button id="addEffectBtn" disabled>Add Effect</button>
+      <span class="hint" style="margin:0;">New effects start at the original preview's current position, with sensible defaults.</span>
+    </div>
+
+    <table class="fxlist" style="margin-top:14px;">
+      <thead>
+        <tr>
+          <th style="width:34px;">On</th>
+          <th>Effect</th>
+          <th style="width:150px;">Window (source time)</th>
+          <th>Settings</th>
+          <th style="width:80px;"></th>
+        </tr>
+      </thead>
+      <tbody id="effectListBody"></tbody>
+    </table>
+    <div id="effectListEmpty" class="empty-msg">No effects yet. Add one above &mdash; with no effects, export simply re-encodes the source.</div>
+
+    <div class="editor empty" id="effectEditor">Select an effect in the list to edit it.</div>
+    <p class="hint">All effect times are in <strong>source video time</strong> (the timeline of your original clip), so they stay anchored to the content even when a Speed Ramp changes the output length.</p>
+  </section>
+
+  <!-- ================= 3. PREVIEW ================= -->
+  <section class="card">
+    <h2><span class="num">3</span>Preview</h2>
     <div class="videos">
       <div class="video-block">
         <h3>Original</h3>
         <video id="sourceVideo" controls playsinline></video>
       </div>
       <div class="video-block">
-        <h3>Processed Result</h3>
+        <h3>Edited</h3>
         <video id="processedVideo" controls playsinline></video>
-        <p class="hint" id="processedHint">Not generated yet. Use "Generate Preview" below.</p>
+        <p class="hint" id="processedHint">Not generated yet. Use "Generate Preview".</p>
       </div>
     </div>
     <div class="row" style="margin-top:12px;">
       <button id="previewBtn" disabled>Generate Preview</button>
+      <span class="hint" style="margin:0;">Preview runs the exact same render pipeline as Export, so what you see is what you get.</span>
     </div>
     <div class="progress-wrap" id="previewProgressWrap" style="display:none;">
       <div class="progress-bar" id="previewProgressBar"></div>
@@ -238,58 +223,9 @@
     <div class="status" id="previewStatus"></div>
   </section>
 
-  <section class="card" id="section-info">
-    <h2><span class="num">3</span>Video Information</h2>
-    <table class="meta">
-      <tr><td class="k">File name</td><td id="infoName">&mdash;</td></tr>
-      <tr><td class="k">File type</td><td id="infoType">&mdash;</td></tr>
-      <tr><td class="k">Duration</td><td id="infoDuration">&mdash;</td></tr>
-      <tr><td class="k">Dimensions</td><td id="infoDimensions">&mdash;</td></tr>
-      <tr><td class="k">Detected frame rate</td><td id="infoFps">&mdash;</td></tr>
-      <tr><td class="k">Output frame rate used</td><td id="infoOutputFps">
-        <input type="number" id="outputFpsInput" min="1" max="120" step="1" value="30" style="width:70px;"> fps
-        <span class="hint" style="margin:0;">(drives the deterministic frame grid for preview/export)</span>
-      </td></tr>
-    </table>
-  </section>
-
-  <section class="card" id="section-shake">
-    <h2><span class="num">4</span>Screen Shake</h2>
-    <div class="checkbox-row" style="margin-bottom:10px;">
-      <input type="checkbox" id="shakeEnabled" checked>
-      <label for="shakeEnabled">Enable Screen Shake</label>
-    </div>
-    <div class="row">
-      <div class="field">
-        <label for="shakeStart">Start time (s)</label>
-        <input type="number" id="shakeStart" min="0" step="0.1" value="0">
-      </div>
-      <div class="field">
-        <label for="shakeDuration">Duration (s)</label>
-        <input type="number" id="shakeDuration" min="0" step="0.1" value="1">
-      </div>
-      <div class="field">
-        <label for="shakeIntensity">Intensity</label>
-        <select id="shakeIntensity">
-          <option value="low">Low</option>
-          <option value="medium" selected>Medium</option>
-          <option value="high">High</option>
-        </select>
-      </div>
-      <div class="field">
-        <label for="shakeFrequency">Frequency</label>
-        <select id="shakeFrequency">
-          <option value="low">Low</option>
-          <option value="medium" selected>Medium</option>
-          <option value="high">High</option>
-        </select>
-      </div>
-    </div>
-    <p class="hint" id="shakeRangeHint"></p>
-  </section>
-
-  <section class="card" id="section-export">
-    <h2><span class="num">5</span>Export</h2>
+  <!-- ================= 4. EXPORT ================= -->
+  <section class="card">
+    <h2><span class="num">4</span>Export</h2>
     <div class="row">
       <button id="exportBtn" disabled>Export as WebM</button>
     </div>
@@ -298,10 +234,17 @@
     </div>
     <div class="status" id="exportStatus"></div>
     <div id="downloadArea"></div>
-    <p class="limitations">
-      <strong>Known Phase 1 limitations:</strong> Audio is not preserved in the exported file (video-only WebM/VP8 track).
-      Frame rate is detected via short sampled playback and rounded to the nearest whole number for the output frame grid;
-      it may not exactly equal the source's true encoded frame rate, especially for variable-frame-rate sources.
+    <table class="meta" id="outputInfoTable" style="margin-top:12px; display:none;">
+      <tr><td class="k">Output resolution</td><td id="outResolution">&mdash;</td></tr>
+      <tr><td class="k">Output duration</td><td id="outDuration">&mdash;</td></tr>
+      <tr><td class="k">Output frames</td><td id="outFrames">&mdash;</td></tr>
+      <tr><td class="k">File size</td><td id="outSize">&mdash;</td></tr>
+      <tr><td class="k">Render time</td><td id="outRenderTime">&mdash;</td></tr>
+    </table>
+    <p class="limitations" style="margin-top:14px;">
+      <strong>Known limitations:</strong> Audio is not preserved in the exported file (video-only WebM/VP8 track).
+      Frame rate is detected by sampling playback and rounded to a whole number for the output frame grid, so it may
+      not exactly equal a source's true encoded rate (especially for variable-frame-rate sources).
       Requires a Chromium-based browser with WebCodecs (VideoEncoder) support.
     </p>
   </section>
@@ -316,7 +259,8 @@
 'use strict';
 
 /* =========================================================================
-   MODULE: Logging / UI status helpers
+   MODULE: Logging / UI status helpers  (wall-clock time is used ONLY here,
+   for human-facing messages -- never to drive effect state)
    ========================================================================= */
 const Log = (() => {
   const box = document.getElementById('logBox');
@@ -342,8 +286,14 @@ function setStatus(elId, text, kind) {
   el.className = 'status' + (kind ? ' ' + kind : '');
 }
 
+function formatBytes(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+}
+
 /* =========================================================================
-   MODULE: Binary / EBML writing utilities (foundation for the WebM muxer)
+   MODULE: Binary / EBML writing utilities  (unchanged foundation)
    ========================================================================= */
 const EBML = (() => {
   function concatBytes(chunks) {
@@ -356,7 +306,6 @@ const EBML = (() => {
   }
 
   // Minimal-length EBML variable-length integer WITH the length-marker bit set.
-  // Used for element size fields and for the SimpleBlock track-number field.
   function vintEncode(value) {
     let length = 1;
     while (length < 8 && value > (Math.pow(2, 7 * length) - 2)) length++;
@@ -370,10 +319,8 @@ const EBML = (() => {
     return bytes;
   }
 
-  // 8-byte "unknown size" marker, used for the top-level streamed Segment.
   const UNKNOWN_SIZE = new Uint8Array([0x01, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]);
 
-  // Minimal big-endian unsigned integer representation (Matroska "uinteger").
   function uintBytes(value) {
     if (value <= 0) return new Uint8Array([0]);
     const bytes = [];
@@ -394,11 +341,8 @@ const EBML = (() => {
     return new Uint8Array(buf);
   }
 
-  function stringBytes(str) {
-    return new TextEncoder().encode(str);
-  }
+  function stringBytes(str) { return new TextEncoder().encode(str); }
 
-  // Build a complete element: ID bytes + vint(size) + content bytes.
   function element(idBytes, contentBytes) {
     return concatBytes([idBytes, vintEncode(contentBytes.length), contentBytes]);
   }
@@ -437,7 +381,7 @@ const EBML = (() => {
 
 /* =========================================================================
    MODULE: WebM muxer (video-only, VP8, streamed Segment/Cluster/SimpleBlock)
-   Phase 1 does not preserve audio -- see reported limitation.
+   Unchanged foundation. Audio is not muxed -- see reported limitations.
    ========================================================================= */
 class WebMMuxer {
   constructor({ width, height, codecId, durationMs }) {
@@ -463,8 +407,6 @@ class WebMMuxer {
       E.element(E.ID.EBMLMaxSizeLength, E.uintBytes(8)),
     ]);
     this.chunks.push(E.element(E.ID.EBML, ebmlHeaderContent));
-
-    // Segment: unknown size, streamed (children pushed as siblings follow).
     this.chunks.push(E.concatBytes([E.ID.Segment, E.UNKNOWN_SIZE]));
 
     const infoContent = E.concatBytes([
@@ -482,21 +424,19 @@ class WebMMuxer {
     const trackEntryContent = E.concatBytes([
       E.element(E.ID.TrackNumber, E.uintBytes(this.trackNumber)),
       E.element(E.ID.TrackUID, E.uintBytes(this.trackNumber)),
-      E.element(E.ID.TrackType, E.uintBytes(1)), // 1 = video
+      E.element(E.ID.TrackType, E.uintBytes(1)),
       E.element(E.ID.CodecID, E.stringBytes(this.codecId)),
       E.element(E.ID.Video, videoContent),
     ]);
     this.chunks.push(E.element(E.ID.Tracks, E.element(E.ID.TrackEntry, trackEntryContent)));
   }
 
-  // timestampUs: frame timestamp in microseconds (matches EncodedVideoChunk.timestamp).
   addFrame(dataBytes, timestampUs, isKeyframe) {
     const timecodeMs = Math.round(timestampUs / 1000);
     if (this.currentClusterTimecode === null) {
       this._startCluster(timecodeMs);
     } else {
       const rel = timecodeMs - this.currentClusterTimecode;
-      // Start a new cluster on keyframes or before the int16 relative-timecode range overflows.
       if (isKeyframe || rel > 30000) {
         this._flushCluster();
         this._startCluster(timecodeMs);
@@ -516,10 +456,12 @@ class WebMMuxer {
     const E = EBML;
     const pieces = [E.element(E.ID.Timecode, E.uintBytes(this.currentClusterTimecode))];
     for (const f of this.currentClusterFrames) {
-      const trackVint = E.vintEncode(this.trackNumber);
-      const relBytes = E.int16Bytes(f.rel);
-      const flags = new Uint8Array([f.isKeyframe ? 0x80 : 0x00]);
-      const blockContent = E.concatBytes([trackVint, relBytes, flags, f.data]);
+      const blockContent = E.concatBytes([
+        E.vintEncode(this.trackNumber),
+        E.int16Bytes(f.rel),
+        new Uint8Array([f.isKeyframe ? 0x80 : 0x00]),
+        f.data,
+      ]);
       pieces.push(E.element(E.ID.SimpleBlock, blockContent));
     }
     this.chunks.push(E.element(E.ID.Cluster, E.concatBytes(pieces)));
@@ -534,153 +476,486 @@ class WebMMuxer {
 }
 
 /* =========================================================================
-   MODULE: Effect parameter model
+   MODULE: Shared deterministic math
+   Every function here is a pure function of (time, parameters).
+   No Date.now(), no performance.now(), no random(), no rAF.
    ========================================================================= */
-const EffectParams = {
-  read() {
-    return {
-      enabled: document.getElementById('shakeEnabled').checked,
-      start: Math.max(0, parseFloat(document.getElementById('shakeStart').value) || 0),
-      duration: Math.max(0, parseFloat(document.getElementById('shakeDuration').value) || 0),
-      intensity: document.getElementById('shakeIntensity').value,
-      frequency: document.getElementById('shakeFrequency').value,
-    };
+const M = {
+  clamp(x, lo, hi) { return x < lo ? lo : (x > hi ? hi : x); },
+  smoothstep(x) { x = M.clamp(x, 0, 1); return x * x * (3 - 2 * x); },
+  smootherstep(x) { x = M.clamp(x, 0, 1); return x * x * x * (x * (x * 6 - 15) + 10); },
+
+  // Shared 0 -> 1 -> 0 envelope with capped attack/release ramps.
+  // Returns exactly 0 at and outside the window boundaries.
+  envelope(t, start, duration, maxRamp) {
+    if (!(duration > 0)) return 0;
+    const end = start + duration;
+    if (t <= start || t >= end) return 0;
+    const ramp = Math.min(duration / 2, maxRamp === undefined ? 0.15 : maxRamp);
+    if (ramp <= 0) return 1;
+    const tIn = t - start;
+    const tOut = end - t;
+    if (tIn < ramp) return M.smoothstep(tIn / ramp);
+    if (tOut < ramp) return M.smoothstep(tOut / ramp);
+    return 1;
+  },
+
+  // Normalized progress through an effect window, or -1 when outside it.
+  progress(t, start, duration) {
+    if (!(duration > 0)) return -1;
+    if (t <= start || t >= start + duration) return -1;
+    return (t - start) / duration;
   },
 };
 
 /* =========================================================================
-   MODULE: Screen Shake transform (deterministic, timestamp-driven)
+   MODULE: Effect type registry
+   Single source of truth for UI controls, defaults and parameter values.
+   Adding a future effect means adding one entry here plus one evaluator.
    ========================================================================= */
-const ScreenShakeEffect = (() => {
-  const INTENSITY = {
-    low: { ampPct: 0.012, rotDeg: 0.30 },
-    medium: { ampPct: 0.022, rotDeg: 0.60 },
-    high: { ampPct: 0.035, rotDeg: 1.00 },
-  };
-  const FREQUENCY_HZ = { low: 5, medium: 9, high: 14 };
+const SHAKE_INTENSITY = {
+  low: { ampPct: 0.012, rotDeg: 0.30 },
+  medium: { ampPct: 0.022, rotDeg: 0.60 },
+  high: { ampPct: 0.035, rotDeg: 1.00 },
+};
+const SHAKE_FREQUENCY_HZ = { low: 5, medium: 9, high: 14 };
+const PUNCH_ZOOM_AMOUNT = { low: 1.04, medium: 1.08, high: 1.14 };
+const SMOOTH_ZOOM_AMOUNT = { low: 1.05, medium: 1.10, high: 1.18 };
+const FLASH_ALPHA = { low: 0.25, medium: 0.45, high: 0.70 };
+const VIGNETTE_ALPHA = { low: 0.25, medium: 0.40, high: 0.55 };
+// Motion blur tap weights, newest frame first. More/flatter taps = stronger trail.
+const MOTION_BLUR_WEIGHTS = {
+  low: [0.70, 0.30],
+  medium: [0.50, 0.30, 0.20],
+  high: [0.38, 0.24, 0.17, 0.12, 0.09],
+};
 
-  function smoothstep(x) {
-    x = Math.max(0, Math.min(1, x));
-    return x * x * (3 - 2 * x);
-  }
+const LEVEL_OPTIONS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
 
-  // Smooth 0->1->0 envelope with capped attack/release ramps, deterministic in t.
-  function envelope(t, start, duration) {
-    if (duration <= 0) return 0;
-    const end = start + duration;
-    if (t <= start || t >= end) return 0;
-    const rampTime = Math.min(duration / 2, 0.15);
-    const tIn = t - start;
-    const tOut = end - t;
-    if (tIn < rampTime) return smoothstep(tIn / rampTime);
-    if (tOut < rampTime) return smoothstep(tOut / rampTime);
-    return 1;
-  }
+const EFFECT_TYPES = {
+  shake: {
+    label: 'Screen Shake',
+    defaultDuration: 1.0,
+    defaults: { intensity: 'medium', frequency: 'medium' },
+    params: [
+      { key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS },
+      { key: 'frequency', label: 'Frequency', options: LEVEL_OPTIONS },
+    ],
+    hint: 'Deterministic 2D shake with smooth attack/release. A small overscan zoom prevents black corners.',
+  },
+  punchZoom: {
+    label: 'Punch Zoom',
+    defaultDuration: 0.32,
+    defaults: { amount: 'medium' },
+    params: [
+      { key: 'amount', label: 'Amount', options: [['low', 'Low (1.04x)'], ['medium', 'Medium (1.08x)'], ['high', 'High (1.14x)']] },
+    ],
+    hint: 'Fast punch in, brief hold, smooth return. Returns to exactly 1.0x outside the window. Zoom centre is the frame centre.',
+  },
+  smoothZoom: {
+    label: 'Smooth Zoom',
+    defaultDuration: 2.0,
+    defaults: { amount: 'medium', direction: 'in' },
+    params: [
+      { key: 'amount', label: 'Amount', options: [['low', 'Low (1.05x)'], ['medium', 'Medium (1.10x)'], ['high', 'High (1.18x)']] },
+      { key: 'direction', label: 'Direction', options: [['in', 'In'], ['out', 'Out']] },
+    ],
+    hint: 'Slow cinematic push. "In" eases 1.0x to the chosen scale; "Out" starts at the chosen scale and eases back to 1.0x, ' +
+          'so Out begins with a visible jump to the zoomed scale unless it starts at 0s.',
+  },
+  speedRamp: {
+    label: 'Speed Ramp',
+    defaultDuration: 1.0,
+    defaults: { speed: '2' },
+    params: [
+      { key: 'speed', label: 'Speed', options: [['0.5', '0.5x'], ['0.75', '0.75x'], ['1.5', '1.5x'], ['2', '2x'], ['3', '3x'], ['4', '4x']] },
+    ],
+    hint: 'Retimes this source interval. Everything outside stays 1x, so the output length changes. Output frame timestamps stay strictly monotonic.',
+  },
+  flash: {
+    label: 'Flash',
+    defaultDuration: 0.08,
+    defaults: { intensity: 'medium' },
+    params: [{ key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS }],
+    hint: 'Short bright impact with a fast rise and smooth decay. Never reaches pure white.',
+  },
+  motionBlur: {
+    label: 'Motion Blur',
+    defaultDuration: 0.5,
+    defaults: { intensity: 'medium' },
+    params: [{ key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS }],
+    hint: 'Blends the preceding processed frames into a shutter-style trail. Also blurs shake/zoom motion. Deterministic frame history, no wall-clock input.',
+  },
+  vignette: {
+    label: 'Impact Vignette',
+    defaultDuration: 0.8,
+    defaults: { intensity: 'low' },
+    params: [{ key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS }],
+    hint: 'Subtly darkens the edges to emphasise a moment. Fully removed outside the window.',
+  },
+};
 
-  // Deterministic pseudo-random-looking oscillation built from fixed-phase sine waves.
-  // Same (t, params) always yields the same offsets -- no Math.random / wall clock involved.
-  function rawOffsets(t, freqHz) {
+function effectLabel(type) {
+  return EFFECT_TYPES[type] ? EFFECT_TYPES[type].label : type;
+}
+
+function effectSummary(fx) {
+  const def = EFFECT_TYPES[fx.type];
+  if (!def) return '';
+  return def.params.map((p) => {
+    const opt = p.options.find((o) => o[0] === String(fx.params[p.key]));
+    return (opt ? opt[1] : fx.params[p.key]);
+  }).join(' / ');
+}
+
+/* =========================================================================
+   MODULE: Per-effect evaluators (pure functions of source timestamp)
+   Each returns the effect's contribution at one instant. Adding an effect
+   later means adding an evaluator here and composing it in FrameState.
+   ========================================================================= */
+const EffectMath = {
+  // --- Screen Shake: deterministic fixed-phase sine stack, Phase 1 behaviour ---
+  shake(t, params, width, height) {
+    const env = M.envelope(t, params.start, params.duration, 0.15);
+    if (env <= 0) return null;
+    const cfg = SHAKE_INTENSITY[params.intensity] || SHAKE_INTENSITY.medium;
+    const freqHz = SHAKE_FREQUENCY_HZ[params.frequency] || SHAKE_FREQUENCY_HZ.medium;
+    const ampPx = cfg.ampPct * height;
+    const rotMaxRad = cfg.rotDeg * Math.PI / 180;
+
     const ox = Math.sin(2 * Math.PI * freqHz * t + 0.7) * 0.6 +
                Math.sin(2 * Math.PI * freqHz * 1.9 * t + 2.1) * 0.4;
     const oy = Math.sin(2 * Math.PI * freqHz * 1.3 * t + 1.4) * 0.6 +
                Math.sin(2 * Math.PI * freqHz * 2.3 * t + 4.2) * 0.4;
     const orot = Math.sin(2 * Math.PI * freqHz * 0.8 * t + 3.3);
-    return { ox, oy, orot };
-  }
 
-  function overscanScale(cfg, width, height) {
-    const minDim = Math.min(width, height);
-    const ampPx = cfg.ampPct * height;
-    const rotMaxRad = cfg.rotDeg * Math.PI / 180;
+    // Overscan margin needed so displacement + rotation can never expose an edge.
+    // Scaled by the same envelope as the motion itself, so coverage stays
+    // sufficient at every instant while the zoom enters and leaves smoothly.
     const diag = Math.sqrt(width * width + height * height);
     const rotDisp = (diag / 2) * Math.sin(rotMaxRad);
-    const margin = (ampPx + rotDisp) * 1.15 + 2; // safety factor + fixed pixel buffer
-    return 1 + (2 * margin) / minDim;
+    const margin = env * ((ampPx + rotDisp) * 1.15 + 2);
+
+    return {
+      dx: ox * ampPx * env,
+      dy: oy * ampPx * env,
+      rot: orot * rotMaxRad * env,
+      margin,
+    };
+  },
+
+  // --- Punch Zoom: fast attack, brief hold, smooth release; exactly 1.0x outside ---
+  punchZoom(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return 1;
+    const amount = PUNCH_ZOOM_AMOUNT[params.amount] || PUNCH_ZOOM_AMOUNT.medium;
+    const ATTACK = 0.20, HOLD_END = 0.40;
+    let curve;
+    if (u < ATTACK) curve = M.smoothstep(u / ATTACK);
+    else if (u < HOLD_END) curve = 1;
+    else curve = 1 - M.smoothstep((u - HOLD_END) / (1 - HOLD_END));
+    return 1 + (amount - 1) * curve;
+  },
+
+  // --- Smooth Zoom: eased push in or pull back; exactly 1.0x outside ---
+  smoothZoom(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return 1;
+    const amount = SMOOTH_ZOOM_AMOUNT[params.amount] || SMOOTH_ZOOM_AMOUNT.medium;
+    const e = M.smootherstep(u);
+    return params.direction === 'out'
+      ? 1 + (amount - 1) * (1 - e)
+      : 1 + (amount - 1) * e;
+  },
+
+  // --- Flash: fast rise, smooth decay, white overlay alpha ---
+  flash(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return 0;
+    const peak = FLASH_ALPHA[params.intensity] || FLASH_ALPHA.medium;
+    const ATTACK = 0.25;
+    const shape = u < ATTACK
+      ? M.smoothstep(u / ATTACK)
+      : 1 - M.smoothstep((u - ATTACK) / (1 - ATTACK));
+    return peak * shape;
+  },
+
+  // --- Impact Vignette: enveloped edge darkening alpha ---
+  vignette(t, params) {
+    const env = M.envelope(t, params.start, params.duration, 0.20);
+    if (env <= 0) return 0;
+    return (VIGNETTE_ALPHA[params.intensity] || VIGNETTE_ALPHA.medium) * env;
+  },
+
+  // --- Motion Blur: tap weights for the trailing frame history ---
+  // Returns weights (newest first) already blended toward "no blur" by the
+  // envelope, so the window edges are smooth and outside the window the
+  // newest frame keeps weight 1 (bit-identical passthrough).
+  motionBlur(t, params) {
+    const env = M.envelope(t, params.start, params.duration, 0.15);
+    if (env <= 0) return null;
+    const base = MOTION_BLUR_WEIGHTS[params.intensity] || MOTION_BLUR_WEIGHTS.medium;
+    const weights = base.map((w, i) => (i === 0 ? 1 - env * (1 - w) : env * w));
+    return weights;
+  },
+
+  maxBlurTaps(intensity) {
+    return (MOTION_BLUR_WEIGHTS[intensity] || MOTION_BLUR_WEIGHTS.medium).length;
+  },
+};
+
+/* =========================================================================
+   MODULE: Frame state composer
+   Collapses the whole effect stack at one source timestamp into a single
+   description of what to do with the frame. Effects compose:
+     - zoom scales multiply
+     - shake offsets/rotations/margins add
+     - flash/vignette alphas combine as screen blends
+     - the strongest overlapping motion blur wins
+   ========================================================================= */
+function computeFrameState(effects, sourceTime, width, height) {
+  let zoomScale = 1;
+  let dx = 0, dy = 0, rot = 0, shakeMargin = 0;
+  let flashAlpha = 0, vignetteAlpha = 0;
+  let blurWeights = null;
+
+  for (const fx of effects) {
+    if (!fx.enabled) continue;
+    const p = Object.assign({ start: fx.start, duration: fx.duration }, fx.params);
+    switch (fx.type) {
+      case 'shake': {
+        const s = EffectMath.shake(sourceTime, p, width, height);
+        if (s) { dx += s.dx; dy += s.dy; rot += s.rot; shakeMargin += s.margin; }
+        break;
+      }
+      case 'punchZoom':
+        zoomScale *= EffectMath.punchZoom(sourceTime, p);
+        break;
+      case 'smoothZoom':
+        zoomScale *= EffectMath.smoothZoom(sourceTime, p);
+        break;
+      case 'flash': {
+        const a = EffectMath.flash(sourceTime, p);
+        if (a > 0) flashAlpha = 1 - (1 - flashAlpha) * (1 - a);
+        break;
+      }
+      case 'vignette': {
+        const a = EffectMath.vignette(sourceTime, p);
+        if (a > 0) vignetteAlpha = 1 - (1 - vignetteAlpha) * (1 - a);
+        break;
+      }
+      case 'motionBlur': {
+        const w = EffectMath.motionBlur(sourceTime, p);
+        // Strongest blur wins: the smaller the newest-frame weight, the stronger.
+        if (w && (!blurWeights || w[0] < blurWeights[0])) blurWeights = w;
+        break;
+      }
+      case 'speedRamp':
+        break; // handled by the time map, not per-frame rendering
+    }
   }
 
-  // Returns { active:false } outside the effect window (frame must stay pixel-identical),
-  // otherwise { active:true, offsetX, offsetY, rotation, scale } in canvas units/radians.
-  function computeTransform(t, params, width, height) {
-    if (!params.enabled) return { active: false };
-    const env = envelope(t, params.start, params.duration);
-    if (env <= 0) return { active: false };
-    const cfg = INTENSITY[params.intensity] || INTENSITY.medium;
-    const freqHz = FREQUENCY_HZ[params.frequency] || FREQUENCY_HZ.medium;
-    const ampPx = cfg.ampPct * height;
-    const rotMaxRad = cfg.rotDeg * Math.PI / 180;
-    const { ox, oy, orot } = rawOffsets(t, freqHz);
+  // One overscan factor covering every active shake's margin at this instant.
+  const overscan = shakeMargin > 0 ? 1 + (2 * shakeMargin) / Math.min(width, height) : 1;
+  const scale = zoomScale * overscan;
+  const geometric = scale !== 1 || dx !== 0 || dy !== 0 || rot !== 0;
+
+  return { scale, dx, dy, rot, flashAlpha, vignetteAlpha, blurWeights, geometric };
+}
+
+/* =========================================================================
+   MODULE: Time map (Speed Ramp)
+   Builds an exact, strictly increasing piecewise-linear source<->output time
+   mapping from the enabled speed ramps. Output frame timestamps are always
+   i / fps, so muxed timestamps stay monotonic no matter how time is warped.
+   Overlapping ramps multiply (2x over 2x = 4x), which keeps the map monotonic.
+   ========================================================================= */
+const TimeMap = {
+  build(effects, sourceDuration) {
+    const ramps = [];
+    for (const fx of effects) {
+      if (!fx.enabled || fx.type !== 'speedRamp') continue;
+      const speed = parseFloat(fx.params.speed);
+      if (!(speed > 0) || !isFinite(speed)) continue;
+      const s = M.clamp(fx.start, 0, sourceDuration);
+      const e = M.clamp(fx.start + fx.duration, 0, sourceDuration);
+      if (e > s) ramps.push({ start: s, end: e, speed });
+    }
+
+    const points = new Set([0, sourceDuration]);
+    for (const r of ramps) { points.add(r.start); points.add(r.end); }
+    const sorted = Array.from(points).filter((v) => isFinite(v)).sort((a, b) => a - b);
+
+    const segments = [];
+    let outT = 0;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      const a = sorted[i], b = sorted[i + 1];
+      if (!(b > a)) continue;
+      const mid = (a + b) / 2;
+      let speed = 1;
+      for (const r of ramps) if (mid >= r.start && mid <= r.end) speed *= r.speed;
+      const outLen = (b - a) / speed;
+      segments.push({ srcStart: a, srcEnd: b, outStart: outT, outEnd: outT + outLen, speed });
+      outT += outLen;
+    }
+    if (segments.length === 0) {
+      segments.push({ srcStart: 0, srcEnd: sourceDuration, outStart: 0, outEnd: sourceDuration, speed: 1 });
+      outT = sourceDuration;
+    }
     return {
-      active: true,
-      offsetX: ox * ampPx * env,
-      offsetY: oy * ampPx * env,
-      rotation: orot * rotMaxRad * env,
-      scale: overscanScale(cfg, width, height),
+      segments,
+      sourceDuration,
+      outputDuration: outT,
+      sourceTimeAt(outputTime) {
+        const y = M.clamp(outputTime, 0, this.outputDuration);
+        for (let i = 0; i < this.segments.length; i++) {
+          const s = this.segments[i];
+          if (y <= s.outEnd || i === this.segments.length - 1) {
+            return s.srcStart + (y - s.outStart) * s.speed;
+          }
+        }
+        return this.sourceDuration;
+      },
+      outputTimeAt(sourceTime) {
+        const x = M.clamp(sourceTime, 0, this.sourceDuration);
+        for (let i = 0; i < this.segments.length; i++) {
+          const s = this.segments[i];
+          if (x <= s.srcEnd || i === this.segments.length - 1) {
+            return s.outStart + (x - s.srcStart) / s.speed;
+          }
+        }
+        return this.outputDuration;
+      },
+    };
+  },
+};
+
+/* =========================================================================
+   MODULE: Effect stack model  (independent timeline items)
+   ========================================================================= */
+const EffectStack = (() => {
+  let items = [];
+  let nextId = 1;
+  let selectedId = null;
+
+  function create(type, startTime) {
+    const def = EFFECT_TYPES[type];
+    if (!def) throw new Error('Unknown effect type: ' + type);
+    const fx = {
+      id: nextId++,
+      type,
+      enabled: true,
+      start: Math.max(0, Math.round((startTime || 0) * 100) / 100),
+      duration: def.defaultDuration,
+      params: Object.assign({}, def.defaults),
+    };
+    items.push(fx);
+    selectedId = fx.id;
+    return fx;
+  }
+
+  function normalize(raw) {
+    const def = EFFECT_TYPES[raw.type];
+    if (!def) return null;
+    return {
+      id: nextId++,
+      type: raw.type,
+      enabled: raw.enabled !== false,
+      start: Number(raw.start) || 0,
+      duration: raw.duration === undefined ? def.defaultDuration : Number(raw.duration),
+      params: Object.assign({}, def.defaults, raw.params || {}),
     };
   }
 
-  return { computeTransform, envelope };
+  return {
+    all: () => items,
+    // Deep snapshot so a running render is never affected by later UI edits.
+    snapshot: () => items.map((fx) => ({
+      id: fx.id, type: fx.type, enabled: fx.enabled,
+      start: fx.start, duration: fx.duration,
+      params: Object.assign({}, fx.params),
+    })),
+    get: (id) => items.find((fx) => fx.id === id) || null,
+    add: create,
+    remove(id) {
+      items = items.filter((fx) => fx.id !== id);
+      if (selectedId === id) selectedId = items.length ? items[items.length - 1].id : null;
+    },
+    clear() { items = []; selectedId = null; },
+    select(id) { selectedId = id; },
+    selectedId: () => selectedId,
+    selected: () => items.find((fx) => fx.id === selectedId) || null,
+    replaceAll(rawList) {
+      items = (rawList || []).map(normalize).filter(Boolean);
+      selectedId = items.length ? items[0].id : null;
+    },
+  };
 })();
 
 /* =========================================================================
-   MODULE: Input / loading
+   MODULE: Validation -- invalid settings must never silently produce
+   corrupt output, so rendering refuses to start instead.
    ========================================================================= */
-const sourceVideo = document.getElementById('sourceVideo');
-const processedVideo = document.getElementById('processedVideo');
-const fileInput = document.getElementById('fileInput');
-const previewBtn = document.getElementById('previewBtn');
-const exportBtn = document.getElementById('exportBtn');
+function validateRender(effects, meta, outputFps, timeMap) {
+  const errors = [];
+  const warnings = [];
+  if (!meta) { errors.push('No video is loaded.'); return { errors, warnings }; }
+  if (!(meta.width > 0 && meta.height > 0)) errors.push('Source video has no readable dimensions.');
+  if (!(meta.duration > 0) || !isFinite(meta.duration)) errors.push('Source video has no readable duration.');
+  if (!(outputFps >= 1 && outputFps <= 120)) errors.push('Output frame rate must be between 1 and 120 fps.');
 
-let currentFile = null;
-let currentObjectURL = null;
-let meta = null; // { name, type, duration, width, height, detectedFps }
-
-fileInput.addEventListener('change', async (e) => {
-  const file = e.target.files && e.target.files[0];
-  if (!file) return;
-  await loadFile(file);
-});
-
-async function loadFile(file) {
-  try {
-    setStatus('previewStatus', '');
-    setStatus('exportStatus', '');
-    document.getElementById('downloadArea').innerHTML = '';
-    previewBtn.disabled = true;
-    exportBtn.disabled = true;
-    processedVideo.removeAttribute('src');
-    document.getElementById('processedHint').textContent = 'Not generated yet. Use "Generate Preview" below.';
-
-    currentFile = file;
-    if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
-    currentObjectURL = URL.createObjectURL(file); // source file itself is never modified, only read
-    sourceVideo.src = currentObjectURL;
-    document.getElementById('inputHint').textContent = 'Loaded: ' + file.name + ' (' + formatBytes(file.size) + ')';
-    Log.info('Loaded file: ' + file.name + ' type=' + (file.type || 'unknown'));
-
-    await Metadata.detect(file, sourceVideo);
-    previewBtn.disabled = false;
-    exportBtn.disabled = false;
-  } catch (err) {
-    Log.error('Failed to load file: ' + err.message);
-    setStatus('previewStatus', 'Failed to load file: ' + err.message, 'error');
+  for (const fx of effects) {
+    if (!fx.enabled) continue;
+    const name = effectLabel(fx.type);
+    if (!isFinite(fx.start) || fx.start < 0) errors.push(name + ': start time must be zero or greater.');
+    if (!isFinite(fx.duration) || fx.duration <= 0) errors.push(name + ': duration must be greater than zero.');
+    if (fx.type === 'speedRamp') {
+      const s = parseFloat(fx.params.speed);
+      if (!(s > 0) || !isFinite(s)) errors.push(name + ': speed must be a positive number.');
+    }
+    // An effect window narrower than the output frame spacing can fall between
+    // sample points and never render. Warn instead of silently doing nothing.
+    if (fx.duration > 0 && outputFps >= 1 && fx.duration < 1.5 / outputFps) {
+      warnings.push(name + ' lasts only ' + fx.duration.toFixed(3) + 's, which is shorter than 1.5 output frames (' +
+        (1 / outputFps).toFixed(3) + 's each). It may land between frames and not appear at all — ' +
+        'lengthen it to about ' + (2 / outputFps).toFixed(2) + 's or raise the output frame rate.');
+    }
+    if (isFinite(fx.start) && meta.duration > 0 && fx.start >= meta.duration) {
+      warnings.push(name + ' starts at ' + fx.start.toFixed(2) + 's, at or past the end of the video, so it will never be visible.');
+    } else if (isFinite(fx.start) && isFinite(fx.duration) && fx.start + fx.duration > meta.duration) {
+      warnings.push(name + ' extends past the end of the video and will be cut short.');
+    }
   }
-}
 
-function formatBytes(bytes) {
-  if (bytes < 1024) return bytes + ' B';
-  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
-  return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+  if (timeMap) {
+    if (!isFinite(timeMap.outputDuration) || timeMap.outputDuration <= 0) {
+      errors.push('The effect settings produce an empty or invalid output duration.');
+    } else {
+      const frames = Math.round(timeMap.outputDuration * outputFps);
+      if (frames > 20000) {
+        errors.push('This would produce ' + frames + ' output frames. Shorten the clip, lower the frame rate, or reduce slow-motion.');
+      }
+    }
+    // The map must be strictly increasing or the muxed timestamps become invalid.
+    for (const s of timeMap.segments) {
+      if (!(s.outEnd > s.outStart) && s.srcEnd > s.srcStart) {
+        errors.push('Speed ramp settings produced a non-monotonic timeline.');
+        break;
+      }
+    }
+  }
+  return { errors, warnings };
 }
 
 /* =========================================================================
-   MODULE: Metadata detection (duration/width/height/fps/type)
+   MODULE: Metadata detection (duration / dimensions / fps / type)
    ========================================================================= */
 const Metadata = (() => {
   function waitForLoadedMetadata(video) {
     return new Promise((resolve, reject) => {
       if (video.readyState >= 1) { resolve(); return; }
       const onLoaded = () => { cleanup(); resolve(); };
-      const onError = () => { cleanup(); reject(new Error('Could not read video metadata (unsupported/corrupt file?)')); };
+      const onError = () => { cleanup(); reject(new Error('Could not read video metadata (unsupported or corrupt file?)')); };
       function cleanup() {
         video.removeEventListener('loadedmetadata', onLoaded);
         video.removeEventListener('error', onError);
@@ -690,20 +965,13 @@ const Metadata = (() => {
     });
   }
 
-  // Estimates FPS from a short sampled playback window using requestVideoFrameCallback,
-  // which reports the true presented media time per frame (not wall-clock/rAF timing).
-  // This is a best-effort estimate: browsers do not expose an exact source frame rate
-  // for arbitrary WebM files via the HTMLVideoElement API.
+  // Best-effort FPS estimate from a short sampled playback using
+  // requestVideoFrameCallback, which reports true presented media time per
+  // frame. Browsers expose no exact source frame rate for arbitrary WebM.
   function estimateFps(video) {
     return new Promise((resolve) => {
-      if (typeof video.requestVideoFrameCallback !== 'function') {
-        resolve(null);
-        return;
-      }
-      let count = 0;
-      let firstMediaTime = null;
-      let lastMediaTime = null;
-      let finished = false;
+      if (typeof video.requestVideoFrameCallback !== 'function') { resolve(null); return; }
+      let count = 0, firstMediaTime = null, lastMediaTime = null, finished = false;
       const maxSamples = 45;
       const wasMuted = video.muted;
       video.muted = true;
@@ -715,11 +983,8 @@ const Metadata = (() => {
         video.currentTime = 0;
         video.muted = wasMuted;
         clearTimeout(safetyTimer);
-        if (count >= 4 && lastMediaTime > firstMediaTime) {
-          resolve((count - 1) / (lastMediaTime - firstMediaTime));
-        } else {
-          resolve(null);
-        }
+        if (count >= 4 && lastMediaTime > firstMediaTime) resolve((count - 1) / (lastMediaTime - firstMediaTime));
+        else resolve(null);
       }
 
       function onFrame(now, metadata) {
@@ -727,19 +992,20 @@ const Metadata = (() => {
         if (firstMediaTime === null) firstMediaTime = metadata.mediaTime;
         lastMediaTime = metadata.mediaTime;
         count++;
-        if (count < maxSamples && !video.paused && !video.ended) {
-          video.requestVideoFrameCallback(onFrame);
-        } else {
-          finish();
-        }
+        if (count < maxSamples && !video.paused && !video.ended) video.requestVideoFrameCallback(onFrame);
+        else finish();
       }
 
       const safetyTimer = setTimeout(finish, 1800);
       video.currentTime = 0;
-      video.play().then(() => {
-        video.requestVideoFrameCallback(onFrame);
-      }).catch(() => finish());
+      video.play().then(() => video.requestVideoFrameCallback(onFrame)).catch(() => finish());
     });
+  }
+
+  function guessTypeFromName(name) {
+    const ext = (name.split('.').pop() || '').toLowerCase();
+    const map = { webm: 'video/webm', mp4: 'video/mp4', mov: 'video/quicktime', ogv: 'video/ogg', mkv: 'video/x-matroska' };
+    return map[ext] || 'unknown';
   }
 
   async function detect(file, video) {
@@ -756,8 +1022,7 @@ const Metadata = (() => {
     document.getElementById('infoFps').textContent = 'Detecting...';
 
     const detectedFps = await estimateFps(video);
-    let fpsText;
-    let outputFpsDefault;
+    let fpsText, outputFpsDefault;
     if (detectedFps && isFinite(detectedFps) && detectedFps > 1) {
       fpsText = detectedFps.toFixed(2) + ' fps (estimated from sampled playback)';
       outputFpsDefault = Math.round(detectedFps);
@@ -769,75 +1034,224 @@ const Metadata = (() => {
     document.getElementById('infoFps').textContent = fpsText;
     document.getElementById('outputFpsInput').value = outputFpsDefault;
 
-    meta = { name: file.name, type: file.type || guessTypeFromName(file.name), duration, width, height, detectedFps };
-    updateShakeRangeHint();
-    return meta;
-  }
+    if (width * height > 2560 * 1440) {
+      Log.warn('High resolution source (' + width + 'x' + height + '). Rendering will use more memory and take longer, especially with Motion Blur.');
+    }
 
-  function guessTypeFromName(name) {
-    const ext = (name.split('.').pop() || '').toLowerCase();
-    const map = { webm: 'video/webm', mp4: 'video/mp4', mov: 'video/quicktime', ogv: 'video/ogg' };
-    return map[ext] || 'unknown';
+    return { name: file.name, type: file.type || guessTypeFromName(file.name), duration, width, height, detectedFps };
   }
 
   return { detect };
 })();
 
 /* =========================================================================
-   MODULE: Frame source (deterministic, timestamp-driven decode via seeking)
-   Rationale: browsers expose no built-in WebM demuxer API, and WebCodecs
-   VideoDecoder requires the caller to supply already-demuxed encoded chunks.
-   Writing/bundling a full Matroska demuxer is out of scope for a dependency
-   -free single HTML file. Seeking the <video> element to an exact timestamp
-   and reading the decoded frame via canvas drawImage() uses the browser's
-   real decoder and gives frame-accurate, timestamp-addressable access
-   without relying on wall-clock playback or screen/tab capture.
-   Limitation: seek precision depends on the browser's decoder; extremely
-   fast scrubbing across many frames is therefore slower than a native
-   demux+decode pipeline would be, trading raw speed for reliability.
+   MODULE: Frame source -- deterministic, timestamp-addressed decode
+   Browsers expose no built-in WebM demuxer, and WebCodecs VideoDecoder
+   requires already-demuxed chunks, so frames are pulled by seeking the
+   <video> element to an exact source timestamp and reading the decoded
+   pixels. This uses the browser's real decoder, is fully timestamp-driven,
+   and is not screen/tab capture.
    ========================================================================= */
-function seekVideoTo(video, t) {
+const SEEK_TIMEOUT_MS = 15000;
+const SEEK_MAX_ATTEMPTS = 3;
+
+function seekOnce(video, t) {
   return new Promise((resolve, reject) => {
-    const tolerance = 0.0005;
-    if (Math.abs(video.currentTime - t) < tolerance) {
-      resolve();
-      return;
-    }
+    // Already parked on exactly this timestamp: the element still holds that
+    // frame, so reading it now is correct (and depends only on the requested
+    // time sequence, never on timing).
+    if (Math.abs(video.currentTime - t) < 0.0005) { resolve('already'); return; }
     let settled = false;
     function cleanup() {
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('error', onError);
       clearTimeout(timer);
     }
-    function onSeeked() { if (settled) return; settled = true; cleanup(); resolve(); }
-    function onError() { if (settled) return; settled = true; cleanup(); reject(new Error('Video seek error at t=' + t)); }
-    // Safety fallback: never hang the pipeline indefinitely on a stalled seek.
-    const timer = setTimeout(() => { if (settled) return; settled = true; cleanup(); resolve(); }, 4000);
+    function onSeeked() { if (settled) return; settled = true; cleanup(); resolve('seeked'); }
+    function onError() { if (settled) return; settled = true; cleanup(); reject(new Error('Video decode/seek error at t=' + t.toFixed(3) + 's')); }
+    const timer = setTimeout(() => { if (settled) return; settled = true; cleanup(); resolve('timeout'); }, SEEK_TIMEOUT_MS);
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('error', onError);
     video.currentTime = t;
   });
 }
 
-/* =========================================================================
-   MODULE: Frame processing engine (shared by Preview and Export)
-   Deterministic: every output frame's transform is a pure function of its
-   timestamp, never of wall-clock time, so processing stalls or slow
-   hardware change how long processing takes but never which transform is
-   applied to which frame.
-   ========================================================================= */
-function estimateBitrate(width, height, fps) {
-  const pixels = width * height;
-  const bitsPerPixelPerFrame = 0.10;
-  return Math.max(500000, Math.round(pixels * fps * bitsPerPixelPerFrame));
+// Correctness over liveness: a stalled seek is retried rather than allowed to
+// fall through and draw whatever frame happens to be in the element. If the
+// decoder really will not deliver the frame, the render stops with an error
+// instead of silently writing a wrong frame and breaking determinism.
+async function seekVideoTo(video, t) {
+  for (let attempt = 1; attempt <= SEEK_MAX_ATTEMPTS; attempt++) {
+    const outcome = await seekOnce(video, t);
+    if (outcome !== 'timeout') return;
+    Log.warn('Seek to ' + t.toFixed(3) + 's timed out (attempt ' + attempt + '/' + SEEK_MAX_ATTEMPTS + '); retrying rather than using a stale frame.');
+  }
+  throw new Error('The video decoder did not deliver the frame at ' + t.toFixed(3) + 's after ' +
+    SEEK_MAX_ATTEMPTS + ' attempts. Rendering was stopped instead of writing an incorrect frame.');
 }
 
-async function renderEffect({ video, width, height, duration, outputFps, shakeParams, onProgress }) {
-  if (typeof VideoEncoder === 'undefined') {
-    throw new Error('WebCodecs VideoEncoder is not available in this browser. Video Effects Lab requires a recent desktop Chrome.');
+/* =========================================================================
+   MODULE: Deterministic frame history (Motion Blur)
+   A ring of recent geometry-processed frames. Because output frames are
+   always produced in order from index 0, the contents at frame i are a pure
+   function of the preceding timestamps -- a stall changes when a frame is
+   produced, never which frames are in the history.
+   ========================================================================= */
+class FrameHistory {
+  constructor(size, width, height) {
+    this.size = Math.max(1, size);
+    this.slots = [];
+    for (let i = 0; i < this.size; i++) {
+      const c = document.createElement('canvas');
+      c.width = width; c.height = height;
+      this.slots.push({ canvas: c, ctx: c.getContext('2d', { alpha: false }) });
+    }
+    this.head = 0;
+    this.count = 0;
+  }
+  push(sourceCanvas) {
+    const slot = this.slots[this.head];
+    slot.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    slot.ctx.globalAlpha = 1;
+    slot.ctx.drawImage(sourceCanvas, 0, 0);
+    this.head = (this.head + 1) % this.size;
+    this.count++;
+  }
+  available() { return Math.min(this.count, this.size); }
+  // k = 0 is the newest pushed frame.
+  get(k) {
+    if (k < 0 || k >= this.available()) return null;
+    return this.slots[(this.head - 1 - k + this.size * 2) % this.size].canvas;
+  }
+}
+
+/* =========================================================================
+   MODULE: Frame renderer -- the single visual pipeline.
+   Order: geometry (zoom + shake) -> motion blur -> flash -> vignette.
+   Used identically by Preview and Export.
+   ========================================================================= */
+class FrameRenderer {
+  constructor(width, height) {
+    this.width = width;
+    this.height = height;
+    this.geoCanvas = document.createElement('canvas');
+    this.geoCanvas.width = width; this.geoCanvas.height = height;
+    this.geoCtx = this.geoCanvas.getContext('2d', { alpha: false });
+    this.blendCanvas = null;
+    this.blendCtx = null;
+    this.history = null;
+    this.vignetteGradient = null;
   }
 
-  const codecId = 'V_VP8';
+  enableHistory(taps) {
+    this.history = new FrameHistory(taps, this.width, this.height);
+    this.blendCanvas = document.createElement('canvas');
+    this.blendCanvas.width = this.width; this.blendCanvas.height = this.height;
+    this.blendCtx = this.blendCanvas.getContext('2d', { alpha: false });
+  }
+
+  _gradient(ctx) {
+    if (!this.vignetteGradient) {
+      const cx = this.width / 2, cy = this.height / 2;
+      const outer = Math.sqrt(cx * cx + cy * cy);
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, outer);
+      g.addColorStop(0.00, 'rgba(0,0,0,0)');
+      g.addColorStop(0.55, 'rgba(0,0,0,0)');
+      g.addColorStop(0.80, 'rgba(0,0,0,0.45)');
+      g.addColorStop(1.00, 'rgba(0,0,0,1)');
+      this.vignetteGradient = g;
+    }
+    return this.vignetteGradient;
+  }
+
+  // Renders one output frame and returns the canvas that should be encoded.
+  render(videoElement, state) {
+    const W = this.width, H = this.height;
+    const gctx = this.geoCtx;
+
+    // --- geometry: zoom scale, shake offset/rotation, shake overscan ---
+    gctx.setTransform(1, 0, 0, 1, 0, 0);
+    gctx.globalAlpha = 1;
+    if (state.geometric) {
+      gctx.translate(W / 2 + state.dx, H / 2 + state.dy);
+      gctx.rotate(state.rot);
+      gctx.scale(state.scale, state.scale);
+      gctx.translate(-W / 2, -H / 2);
+    }
+    gctx.drawImage(videoElement, 0, 0, W, H);
+    gctx.setTransform(1, 0, 0, 1, 0, 0);
+
+    // --- motion blur: blend the trailing history (pristine geometry frames) ---
+    if (this.history) this.history.push(this.geoCanvas);
+
+    let canvas = this.geoCanvas;
+    let ctx = gctx;
+    if (state.blurWeights && this.history && this.history.available() > 1) {
+      this._blend(state.blurWeights);
+      canvas = this.blendCanvas;
+      ctx = this.blendCtx;
+    }
+
+    // --- screen-space overlays ---
+    if (state.flashAlpha > 0) {
+      ctx.globalAlpha = M.clamp(state.flashAlpha, 0, 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+    if (state.vignetteAlpha > 0) {
+      ctx.globalAlpha = M.clamp(state.vignetteAlpha, 0, 1);
+      ctx.fillStyle = this._gradient(ctx);
+      ctx.fillRect(0, 0, W, H);
+      ctx.globalAlpha = 1;
+    }
+    return canvas;
+  }
+
+  // Weighted average of history frames via successive alpha compositing.
+  // Drawing oldest -> newest with alpha_k = w_k / (1 - sum of newer weights)
+  // yields exactly the requested weights.
+  _blend(weights) {
+    const n = Math.min(weights.length, this.history.available());
+    let w = weights.slice(0, n);
+    const sum = w.reduce((a, b) => a + b, 0);
+    if (!(sum > 0)) return;
+    w = w.map((x) => x / sum);
+
+    const alphas = new Array(n);
+    let prefix = 0;
+    for (let k = 0; k < n; k++) {
+      alphas[k] = w[k] / Math.max(1e-6, 1 - prefix);
+      prefix += w[k];
+    }
+
+    const ctx = this.blendCtx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (let k = n - 1; k >= 0; k--) {
+      ctx.globalAlpha = M.clamp(alphas[k], 0, 1);
+      ctx.drawImage(this.history.get(k), 0, 0);
+    }
+    ctx.globalAlpha = 1;
+  }
+}
+
+/* =========================================================================
+   MODULE: Render pipeline (encoding / export)
+   input -> source-time mapping -> decoded frame -> effect stack -> encoder
+   -> WebM muxer.  Output frame i always carries timestamp i/fps, so wall
+   clock delays can change how long a render takes but never what it
+   contains.
+   ========================================================================= */
+function estimateBitrate(width, height, fps) {
+  const bitsPerPixelPerFrame = 0.10;
+  return Math.max(500000, Math.round(width * height * fps * bitsPerPixelPerFrame));
+}
+
+async function renderPipeline({ video, meta, effects, outputFps, timeMap, onProgress }) {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
+    throw new Error('WebCodecs VideoEncoder is not available in this browser. Video Effects Lab requires a recent desktop Chrome.');
+  }
+  const width = meta.width, height = meta.height;
   const encoderConfig = {
     codec: 'vp8',
     width,
@@ -846,23 +1260,17 @@ async function renderEffect({ video, width, height, duration, outputFps, shakePa
     framerate: outputFps,
   };
   const support = await VideoEncoder.isConfigSupported(encoderConfig);
-  if (!support.supported) {
-    throw new Error('This browser does not support VP8 encoding via WebCodecs.');
-  }
+  if (!support.supported) throw new Error('This browser cannot encode VP8 at ' + width + 'x' + height + ' via WebCodecs.');
 
-  const totalFrames = Math.max(1, Math.round(duration * outputFps));
+  const totalFrames = Math.max(1, Math.round(timeMap.outputDuration * outputFps));
   const frameDurationUs = Math.round(1e6 / outputFps);
-  const muxer = new WebMMuxer({ width, height, codecId, durationMs: duration * 1000 });
+  const muxer = new WebMMuxer({ width, height, codecId: 'V_VP8', durationMs: timeMap.outputDuration * 1000 });
 
-  const srcCanvas = document.createElement('canvas');
-  srcCanvas.width = width;
-  srcCanvas.height = height;
-  const srcCtx = srcCanvas.getContext('2d', { alpha: false });
-
-  const outCanvas = document.createElement('canvas');
-  outCanvas.width = width;
-  outCanvas.height = height;
-  const outCtx = outCanvas.getContext('2d', { alpha: false });
+  const renderer = new FrameRenderer(width, height);
+  const blurTaps = effects
+    .filter((fx) => fx.enabled && fx.type === 'motionBlur')
+    .reduce((max, fx) => Math.max(max, EffectMath.maxBlurTaps(fx.params.intensity)), 0);
+  if (blurTaps > 0) renderer.enableHistory(blurTaps);
 
   let encodeError = null;
   const encoder = new VideoEncoder({
@@ -877,172 +1285,386 @@ async function renderEffect({ video, width, height, duration, outputFps, shakePa
 
   video.pause();
   const keyframeInterval = Math.max(1, Math.round(outputFps * 2));
-  const lastValidTime = Math.max(0, duration - (1 / outputFps) / 2);
+  const lastValidTime = Math.max(0, meta.duration - (1 / outputFps) / 2);
 
-  for (let i = 0; i < totalFrames; i++) {
-    if (encodeError) throw encodeError;
-    const t = Math.min(i / outputFps, lastValidTime);
+  try {
+    for (let i = 0; i < totalFrames; i++) {
+      if (encodeError) throw encodeError;
 
-    await seekVideoTo(video, t);
-    srcCtx.drawImage(video, 0, 0, width, height);
+      // Output frame index -> output time -> source time. Nothing here reads a clock.
+      const outputTime = i / outputFps;
+      const sourceTime = M.clamp(timeMap.sourceTimeAt(outputTime), 0, lastValidTime);
 
-    const transform = ScreenShakeEffect.computeTransform(t, shakeParams, width, height);
-    outCtx.setTransform(1, 0, 0, 1, 0, 0);
-    outCtx.clearRect(0, 0, width, height);
-    if (transform.active) {
-      outCtx.save();
-      outCtx.translate(width / 2 + transform.offsetX, height / 2 + transform.offsetY);
-      outCtx.rotate(transform.rotation);
-      outCtx.scale(transform.scale, transform.scale);
-      outCtx.translate(-width / 2, -height / 2);
-      outCtx.drawImage(srcCanvas, 0, 0, width, height);
-      outCtx.restore();
-    } else {
-      outCtx.drawImage(srcCanvas, 0, 0, width, height);
+      await seekVideoTo(video, sourceTime);
+
+      const state = computeFrameState(effects, sourceTime, width, height);
+      const canvas = renderer.render(video, state);
+
+      if (encoder.encodeQueueSize > 8) {
+        await new Promise((resolve) => {
+          const onDequeue = () => { encoder.removeEventListener('dequeue', onDequeue); resolve(); };
+          encoder.addEventListener('dequeue', onDequeue);
+        });
+      }
+
+      const frame = new VideoFrame(canvas, { timestamp: i * frameDurationUs, duration: frameDurationUs });
+      encoder.encode(frame, { keyFrame: i % keyframeInterval === 0 });
+      frame.close();
+
+      if (onProgress) onProgress((i + 1) / totalFrames);
     }
 
-    if (encoder.encodeQueueSize > 8) {
-      await new Promise((resolve) => {
-        const onDequeue = () => { encoder.removeEventListener('dequeue', onDequeue); resolve(); };
-        encoder.addEventListener('dequeue', onDequeue);
-      });
-    }
-
-    const timestampUs = i * frameDurationUs;
-    const vf = new VideoFrame(outCanvas, { timestamp: timestampUs, duration: frameDurationUs });
-    const keyFrame = (i % keyframeInterval === 0);
-    encoder.encode(vf, { keyFrame });
-    vf.close();
-
-    if (onProgress) onProgress((i + 1) / totalFrames);
+    await encoder.flush();
+  } finally {
+    if (encoder.state !== 'closed') encoder.close();
   }
-
-  await encoder.flush();
-  encoder.close();
   if (encodeError) throw encodeError;
-  return muxer.finalize();
+
+  return { blob: muxer.finalize(), frames: totalFrames, duration: timeMap.outputDuration };
 }
 
 /* =========================================================================
-   MODULE: UI state / wiring
+   MODULE: UI state
    ========================================================================= */
-function updateShakeRangeHint() {
-  if (!meta) return;
-  const p = EffectParams.read();
-  const end = p.start + p.duration;
-  const hint = document.getElementById('shakeRangeHint');
-  if (p.duration <= 0) {
-    hint.textContent = 'Duration is 0 -- Screen Shake will have no visible effect.';
-  } else if (p.start >= meta.duration) {
-    hint.textContent = 'Warning: start time is at or beyond the video duration (' + meta.duration.toFixed(2) + 's) -- shake will never trigger.';
-  } else if (end > meta.duration) {
-    hint.textContent = 'Note: effect window extends to ' + end.toFixed(2) + 's, past the video end (' + meta.duration.toFixed(2) + 's); it will be clipped.';
-  } else {
-    hint.textContent = 'Effect window: ' + p.start.toFixed(2) + 's -> ' + end.toFixed(2) + 's.';
-  }
+const sourceVideo = document.getElementById('sourceVideo');
+const processedVideo = document.getElementById('processedVideo');
+const fileInput = document.getElementById('fileInput');
+const previewBtn = document.getElementById('previewBtn');
+const exportBtn = document.getElementById('exportBtn');
+const addEffectBtn = document.getElementById('addEffectBtn');
+const addEffectType = document.getElementById('addEffectType');
+
+let meta = null;
+let currentObjectURL = null;
+let processedObjectURL = null;
+let downloadObjectURL = null;
+let busy = false;
+
+for (const [type, def] of Object.entries(EFFECT_TYPES)) {
+  const opt = document.createElement('option');
+  opt.value = type;
+  opt.textContent = def.label;
+  addEffectType.appendChild(opt);
 }
-['shakeEnabled', 'shakeStart', 'shakeDuration', 'shakeIntensity', 'shakeFrequency'].forEach((id) => {
-  document.getElementById(id).addEventListener('input', updateShakeRangeHint);
-  document.getElementById(id).addEventListener('change', updateShakeRangeHint);
-});
 
 function currentOutputFps() {
   const v = parseInt(document.getElementById('outputFpsInput').value, 10);
   return (v && v > 0) ? v : 30;
 }
 
-let busy = false;
+function currentTimeMap() {
+  return TimeMap.build(EffectStack.all(), meta ? meta.duration : 0);
+}
+
+function setBusy(value) {
+  busy = value;
+  previewBtn.disabled = value || !meta;
+  exportBtn.disabled = value || !meta;
+  addEffectBtn.disabled = value || !meta;
+  fileInput.disabled = value;
+  document.querySelectorAll('#effectEditor input, #effectEditor select').forEach((el) => { el.disabled = value; });
+}
+
+/* ---- effect list rendering ---- */
+function renderEffectList() {
+  const body = document.getElementById('effectListBody');
+  const empty = document.getElementById('effectListEmpty');
+  body.textContent = '';
+  const items = EffectStack.all();
+  empty.style.display = items.length ? 'none' : 'block';
+
+  for (const fx of items) {
+    const tr = document.createElement('tr');
+    tr.className = 'clickable' + (fx.id === EffectStack.selectedId() ? ' selected' : '') + (fx.enabled ? '' : ' disabled');
+    tr.addEventListener('click', (e) => {
+      if (e.target.closest('button') || e.target.closest('input[type="checkbox"]')) return;
+      EffectStack.select(fx.id);
+      refreshEffectsUI();
+    });
+
+    const tdOn = document.createElement('td');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.checked = fx.enabled;
+    cb.title = 'Enable / disable this effect';
+    cb.addEventListener('change', () => { fx.enabled = cb.checked; refreshEffectsUI(); });
+    tdOn.appendChild(cb);
+
+    const tdName = document.createElement('td');
+    tdName.className = 'fxname';
+    tdName.textContent = effectLabel(fx.type);
+
+    const tdTime = document.createElement('td');
+    tdTime.className = 'fxtime';
+    tdTime.textContent = fx.start.toFixed(2) + 's → ' + (fx.start + fx.duration).toFixed(2) + 's';
+
+    const tdParams = document.createElement('td');
+    tdParams.className = 'fxparams';
+    tdParams.textContent = effectSummary(fx);
+
+    const tdActions = document.createElement('td');
+    const del = document.createElement('button');
+    del.className = 'tiny danger';
+    del.textContent = 'Delete';
+    del.disabled = busy;
+    del.addEventListener('click', () => {
+      EffectStack.remove(fx.id);
+      refreshEffectsUI();
+      Log.info('Removed effect: ' + effectLabel(fx.type));
+    });
+    tdActions.appendChild(del);
+
+    tr.append(tdOn, tdName, tdTime, tdParams, tdActions);
+
+    if (meta && fx.enabled) {
+      if (fx.start >= meta.duration) tdTime.classList.add('warn');
+      else if (fx.start + fx.duration > meta.duration) tdTime.title = 'Extends past the end of the video and will be cut short.';
+    }
+    body.appendChild(tr);
+  }
+}
+
+/* ---- selected-effect editor ---- */
+function renderEffectEditor() {
+  const host = document.getElementById('effectEditor');
+  host.textContent = '';
+  const fx = EffectStack.selected();
+  if (!fx) {
+    host.className = 'editor empty';
+    host.textContent = 'Select an effect in the list to edit it.';
+    return;
+  }
+  host.className = 'editor';
+
+  const title = document.createElement('h3');
+  title.style.margin = '0 0 10px 0';
+  title.textContent = 'Editing: ' + effectLabel(fx.type);
+  host.appendChild(title);
+
+  const row = document.createElement('div');
+  row.className = 'row';
+
+  row.appendChild(numberField('Start time (s)', fx.start, 0, 0.05, (v) => {
+    fx.start = Math.max(0, v);
+    refreshEffectsUI();
+  }));
+  row.appendChild(numberField('Duration (s)', fx.duration, 0.01, 0.05, (v) => {
+    fx.duration = Math.max(0.01, v);
+    refreshEffectsUI();
+  }));
+
+  for (const p of EFFECT_TYPES[fx.type].params) {
+    const field = document.createElement('div');
+    field.className = 'field';
+    const label = document.createElement('label');
+    label.textContent = p.label;
+    const select = document.createElement('select');
+    for (const [value, text] of p.options) {
+      const opt = document.createElement('option');
+      opt.value = value;
+      opt.textContent = text;
+      if (String(fx.params[p.key]) === value) opt.selected = true;
+      select.appendChild(opt);
+    }
+    select.disabled = busy;
+    select.addEventListener('change', () => { fx.params[p.key] = select.value; refreshEffectsUI(); });
+    field.append(label, select);
+    row.appendChild(field);
+  }
+  host.appendChild(row);
+
+  const hint = document.createElement('p');
+  hint.className = 'hint';
+  hint.textContent = EFFECT_TYPES[fx.type].hint;
+  host.appendChild(hint);
+}
+
+function numberField(labelText, value, min, step, onChange) {
+  const field = document.createElement('div');
+  field.className = 'field';
+  const label = document.createElement('label');
+  label.textContent = labelText;
+  const input = document.createElement('input');
+  input.type = 'number';
+  input.min = String(min);
+  input.step = String(step);
+  input.value = String(Math.round(value * 1000) / 1000);
+  input.disabled = busy;
+  input.addEventListener('change', () => {
+    const v = parseFloat(input.value);
+    onChange(isFinite(v) ? v : min);
+  });
+  field.append(label, input);
+  return field;
+}
+
+function refreshEffectsUI() {
+  renderEffectList();
+  renderEffectEditor();
+  updateOutputDurationInfo();
+}
+
+function updateOutputDurationInfo() {
+  const cell = document.getElementById('infoOutputDuration');
+  if (!meta) { cell.textContent = '—'; return; }
+  const map = currentTimeMap();
+  const fps = currentOutputFps();
+  const frames = Math.max(1, Math.round(map.outputDuration * fps));
+  const changed = Math.abs(map.outputDuration - meta.duration) > 0.001;
+  cell.textContent = map.outputDuration.toFixed(3) + ' s (' + frames + ' frames)' +
+    (changed ? '  — retimed from ' + meta.duration.toFixed(3) + ' s by Speed Ramp' : '');
+}
+
+/* ---- input / loading ---- */
+fileInput.addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (file) await loadFile(file);
+});
+
+async function loadFile(file) {
+  try {
+    setStatus('previewStatus', '');
+    setStatus('exportStatus', '');
+    document.getElementById('downloadArea').textContent = '';
+    document.getElementById('outputInfoTable').style.display = 'none';
+    previewBtn.disabled = true;
+    exportBtn.disabled = true;
+    addEffectBtn.disabled = true;
+
+    if (processedObjectURL) { URL.revokeObjectURL(processedObjectURL); processedObjectURL = null; }
+    processedVideo.removeAttribute('src');
+    processedVideo.load();
+    document.getElementById('processedHint').textContent = 'Not generated yet. Use "Generate Preview".';
+
+    if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
+    currentObjectURL = URL.createObjectURL(file); // the source file itself is only ever read
+    sourceVideo.src = currentObjectURL;
+    document.getElementById('inputHint').textContent = 'Loaded: ' + file.name + ' (' + formatBytes(file.size) + ')';
+    Log.info('Loaded file: ' + file.name + ' type=' + (file.type || 'unknown'));
+
+    meta = await Metadata.detect(file, sourceVideo);
+
+    previewBtn.disabled = false;
+    exportBtn.disabled = false;
+    addEffectBtn.disabled = false;
+    refreshEffectsUI();
+    if (EffectStack.all().length) Log.info('Existing effect stack kept for the new video; check the warnings in the list.');
+  } catch (err) {
+    meta = null;
+    Log.error('Failed to load file: ' + err.message);
+    setStatus('previewStatus', 'Failed to load file: ' + err.message, 'error');
+  }
+}
+
+/* ---- add effect ---- */
+addEffectBtn.addEventListener('click', () => {
+  if (!meta || busy) return;
+  const type = addEffectType.value;
+  const at = isFinite(sourceVideo.currentTime) ? Math.min(sourceVideo.currentTime, Math.max(0, meta.duration - 0.05)) : 0;
+  const fx = EffectStack.add(type, at);
+  Log.info('Added ' + effectLabel(type) + ' at ' + fx.start.toFixed(2) + 's (' + fx.duration.toFixed(2) + 's, ' + effectSummary(fx) + ')');
+  refreshEffectsUI();
+});
+
+document.getElementById('outputFpsInput').addEventListener('change', updateOutputDurationInfo);
+
+/* ---- shared render driver for Preview and Export ---- */
+async function runRender(kind, wrapId, barId, statusId) {
+  const effects = EffectStack.snapshot();
+  const outputFps = currentOutputFps();
+  const timeMap = TimeMap.build(effects, meta ? meta.duration : 0);
+  const { errors, warnings } = validateRender(effects, meta, outputFps, timeMap);
+
+  if (errors.length) {
+    setStatus(statusId, 'Cannot render:\n  • ' + errors.join('\n  • '), 'error');
+    errors.forEach((e) => Log.error(e));
+    return null;
+  }
+  warnings.forEach((w) => Log.warn(w));
+
+  setBusy(true);
+  document.getElementById(wrapId).style.display = 'block';
+  const bar = document.getElementById(barId);
+  bar.style.width = '0%';
+  const activeCount = effects.filter((f) => f.enabled).length;
+  setStatus(statusId, 'Rendering ' + kind + ' (' + activeCount + ' active effect' + (activeCount === 1 ? '' : 's') + ')...');
+
+  // performance.now() here measures render duration for the user only; it never
+  // influences any effect calculation.
+  const startedAt = performance.now();
+  try {
+    const result = await renderPipeline({
+      video: sourceVideo,
+      meta,
+      effects,
+      outputFps,
+      timeMap,
+      onProgress: (frac) => { bar.style.width = (frac * 100).toFixed(1) + '%'; },
+    });
+    result.elapsed = (performance.now() - startedAt) / 1000;
+    result.warnings = warnings;
+    return result;
+  } catch (err) {
+    setStatus(statusId, kind + ' failed: ' + err.message, 'error');
+    Log.error(kind + ' failed: ' + err.message);
+    return null;
+  } finally {
+    setBusy(false);
+    sourceVideo.pause();
+    refreshEffectsUI();
+  }
+}
 
 previewBtn.addEventListener('click', async () => {
   if (busy || !meta) return;
-  busy = true;
-  previewBtn.disabled = true;
-  exportBtn.disabled = true;
-  document.getElementById('previewProgressWrap').style.display = 'block';
-  setStatus('previewStatus', 'Rendering deterministic preview...');
-  const bar = document.getElementById('previewProgressBar');
-  bar.style.width = '0%';
-  try {
-    const shakeParams = EffectParams.read();
-    const outputFps = currentOutputFps();
-    const startTs = performance.now();
-    const blob = await renderEffect({
-      video: sourceVideo,
-      width: meta.width,
-      height: meta.height,
-      duration: meta.duration,
-      outputFps,
-      shakeParams,
-      onProgress: (frac) => { bar.style.width = (frac * 100).toFixed(1) + '%'; },
-    });
-    const elapsed = ((performance.now() - startTs) / 1000).toFixed(1);
-    const url = URL.createObjectURL(blob);
-    processedVideo.src = url;
-    document.getElementById('processedHint').textContent =
-      'Preview generated (' + formatBytes(blob.size) + ', ' + elapsed + 's to render, video-only, no audio).';
-    setStatus('previewStatus', 'Preview ready.', 'ok');
-    Log.info('Preview rendered: ' + formatBytes(blob.size) + ' in ' + elapsed + 's');
-  } catch (err) {
-    setStatus('previewStatus', 'Preview failed: ' + err.message, 'error');
-    Log.error('Preview failed: ' + err.message);
-  } finally {
-    busy = false;
-    previewBtn.disabled = false;
-    exportBtn.disabled = false;
-    sourceVideo.pause();
-  }
+  const result = await runRender('preview', 'previewProgressWrap', 'previewProgressBar', 'previewStatus');
+  if (!result) return;
+  if (processedObjectURL) URL.revokeObjectURL(processedObjectURL);
+  processedObjectURL = URL.createObjectURL(result.blob);
+  processedVideo.src = processedObjectURL;
+  document.getElementById('processedHint').textContent =
+    'Preview: ' + meta.width + 'x' + meta.height + ', ' + result.duration.toFixed(2) + 's, ' +
+    result.frames + ' frames, ' + formatBytes(result.blob.size) + ' (video only, no audio).';
+  setStatus('previewStatus', 'Preview ready in ' + result.elapsed.toFixed(1) + 's.' +
+    (result.warnings.length ? '\nWarnings:\n  • ' + result.warnings.join('\n  • ') : ''), 'ok');
+  Log.info('Preview rendered: ' + result.frames + ' frames, ' + formatBytes(result.blob.size) + ' in ' + result.elapsed.toFixed(1) + 's');
 });
 
 exportBtn.addEventListener('click', async () => {
   if (busy || !meta) return;
-  busy = true;
-  previewBtn.disabled = true;
-  exportBtn.disabled = true;
-  document.getElementById('exportProgressWrap').style.display = 'block';
-  document.getElementById('downloadArea').innerHTML = '';
-  setStatus('exportStatus', 'Rendering final export...');
-  const bar = document.getElementById('exportProgressBar');
-  bar.style.width = '0%';
-  try {
-    const shakeParams = EffectParams.read();
-    const outputFps = currentOutputFps();
-    const startTs = performance.now();
-    const blob = await renderEffect({
-      video: sourceVideo,
-      width: meta.width,
-      height: meta.height,
-      duration: meta.duration,
-      outputFps,
-      shakeParams,
-      onProgress: (frac) => { bar.style.width = (frac * 100).toFixed(1) + '%'; },
-    });
-    const elapsed = ((performance.now() - startTs) / 1000).toFixed(1);
-    const url = URL.createObjectURL(blob);
-    const baseName = (meta.name || 'video').replace(/\.[^/.]+$/, '');
-    const outName = baseName + '_effects.webm';
+  document.getElementById('downloadArea').textContent = '';
+  const result = await runRender('export', 'exportProgressWrap', 'exportProgressBar', 'exportStatus');
+  if (!result) return;
 
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = outName;
-    link.className = 'download-link';
-    link.textContent = 'Download ' + outName + ' (' + formatBytes(blob.size) + ')';
-    document.getElementById('downloadArea').appendChild(link);
-    link.click(); // auto-trigger the save; the link also stays as a manual fallback/re-download
+  // Release the previous export's URL; its link has already been removed above.
+  if (downloadObjectURL) URL.revokeObjectURL(downloadObjectURL);
+  const url = URL.createObjectURL(result.blob);
+  downloadObjectURL = url;
+  const baseName = (meta.name || 'video').replace(/\.[^/.]+$/, '');
+  const outName = baseName + '_effects.webm';
 
-    setStatus('exportStatus', 'Export complete in ' + elapsed + 's. Download started automatically (use the link below if it did not). Audio was not preserved (see limitations).', 'ok');
-    Log.info('Export rendered: ' + formatBytes(blob.size) + ' in ' + elapsed + 's, output=' + outName);
-  } catch (err) {
-    setStatus('exportStatus', 'Export failed: ' + err.message, 'error');
-    Log.error('Export failed: ' + err.message);
-  } finally {
-    busy = false;
-    previewBtn.disabled = false;
-    exportBtn.disabled = false;
-    sourceVideo.pause();
-  }
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = outName;
+  link.className = 'download-link';
+  link.textContent = 'Download ' + outName + ' (' + formatBytes(result.blob.size) + ')';
+  document.getElementById('downloadArea').appendChild(link);
+  link.click(); // auto-save; the link stays for a manual re-download
+
+  document.getElementById('outputInfoTable').style.display = '';
+  document.getElementById('outResolution').textContent = meta.width + ' x ' + meta.height + ' px (unchanged from source)';
+  document.getElementById('outDuration').textContent = result.duration.toFixed(3) + ' s';
+  document.getElementById('outFrames').textContent = result.frames + ' @ ' + currentOutputFps() + ' fps';
+  document.getElementById('outSize').textContent = formatBytes(result.blob.size);
+  document.getElementById('outRenderTime').textContent = result.elapsed.toFixed(1) + ' s';
+
+  setStatus('exportStatus', 'Export complete in ' + result.elapsed.toFixed(1) + 's. Download started automatically ' +
+    '(use the link below if it did not). Audio is not preserved.' +
+    (result.warnings.length ? '\nWarnings:\n  • ' + result.warnings.join('\n  • ') : ''), 'ok');
+  Log.info('Export rendered: ' + result.frames + ' frames, ' + formatBytes(result.blob.size) + ' in ' + result.elapsed.toFixed(1) + 's -> ' + outName);
 });
 
-/* Startup feature check */
+/* ---- startup ---- */
 (function checkSupport() {
   if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
     Log.error('WebCodecs (VideoEncoder/VideoFrame) is not available. This browser cannot run Video Effects Lab. Use a recent desktop Google Chrome.');
@@ -1050,7 +1672,19 @@ exportBtn.addEventListener('click', async () => {
   } else {
     Log.info('WebCodecs available. Ready.');
   }
+  refreshEffectsUI();
 })();
+
+/* Exposed for debugging and for the automated test harness. Everything here is
+   the same code the UI drives -- there is no separate test-only pipeline. */
+window.VEL = {
+  EFFECT_TYPES, EffectMath, M, TimeMap, EffectStack,
+  computeFrameState, validateRender, renderPipeline, FrameRenderer,
+  getMeta: () => meta,
+  getOutputFps: currentOutputFps,
+  setEffects(list) { EffectStack.replaceAll(list); refreshEffectsUI(); },
+  isBusy: () => busy,
+};
 </script>
 </body>
 </html>
