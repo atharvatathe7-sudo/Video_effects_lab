@@ -138,6 +138,34 @@
   }
   .limitations { font-size: 12.5px; color: var(--muted); }
   .empty-msg { color: var(--muted); font-size: 12.5px; padding: 10px 0; }
+  /* Focal-point picker: an editor-only overlay, never part of the render path. */
+  .focal-wrap { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .focal-stage {
+    position: relative;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    background: #000;
+    cursor: crosshair;
+    touch-action: none;
+    max-width: 100%;
+  }
+  .focal-canvas { display: block; width: 100%; height: 100%; }
+  .focal-marker {
+    position: absolute;
+    width: 26px; height: 26px;
+    margin-left: -13px; margin-top: -13px;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(0,0,0,0.55);
+    pointer-events: none;
+  }
+  .focal-marker::before, .focal-marker::after {
+    content: ''; position: absolute; background: #fff;
+    box-shadow: 0 0 2px rgba(0,0,0,0.8);
+  }
+  .focal-marker::before { left: 50%; top: -9px; width: 2px; height: 40px; margin-left: -1px; }
+  .focal-marker::after { top: 50%; left: -9px; height: 2px; width: 40px; margin-top: -1px; }
 </style>
 </head>
 <body>
@@ -530,7 +558,49 @@ const MOTION_BLUR_WEIGHTS = {
   high: [0.38, 0.24, 0.17, 0.12, 0.09],
 };
 
+// --- Phase 3 effect constants ---
+const DUTCH_TILT_MAX_DEG = 6;          // cinematic emphasis, deliberately not a social-media spin
+const CHROMA_AMOUNT = { low: 0.0015, medium: 0.0030, high: 0.0060 };   // channel split, fraction of width
+const RADIAL_AMOUNT = { low: 0.020, medium: 0.045, high: 0.080 };      // radial extent of the streaks
+const RADIAL_TAPS = { low: 5, medium: 7, high: 10 };
+const DIR_BLUR_AMOUNT = { low: 0.004, medium: 0.008, high: 0.016 };    // half-length, fraction of width
+const DIR_BLUR_TAPS = { low: 5, medium: 5, high: 7 };
+const GLITCH_INTENSITY = {
+  low: { slices: 3, sliceH: 0.04, shift: 0.010, rgb: 0.0015, scan: 0.05 },
+  medium: { slices: 5, sliceH: 0.06, shift: 0.022, rgb: 0.0030, scan: 0.09 },
+  high: { slices: 8, sliceH: 0.09, shift: 0.040, rgb: 0.0055, scan: 0.14 },
+};
+const GHOST_FADE = { low: 0.22, medium: 0.36, high: 0.50 };            // weight of each successive echo
+const SHARPEN_AMOUNT = { low: 0.25, medium: 0.50, high: 0.90 };
+const GRAIN_STRENGTH = { off: 0, low: 4, medium: 9, high: 16 };        // +/- levels on a 0-255 scale
+const GRAIN_SEED = 0x5eed;
+
 const LEVEL_OPTIONS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
+
+/* Deterministic integer hash -> used for Glitch Burst and Film Grain.
+   Pure arithmetic on frame index / pixel position / seed: never Math.random(),
+   never a clock, so every run reproduces the same pattern exactly. */
+function hash3(a, b, c) {
+  let x = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 2246822519);
+  x = Math.imul(x ^ (x >>> 13), 1274126177);
+  x ^= x >>> 16;
+  return x >>> 0;
+}
+const rand01 = (h) => h / 4294967296;
+
+/* Exact scale needed for a W x H frame, rotated by `rot` and shifted by
+   (dx, dy) about its centre, to still cover the whole canvas.
+   Each canvas corner, mapped into image space, must land inside the image:
+   the worst-case corner gives A*|cos| + B*|sin| <= s*W/2 and
+   A*|sin| + B*|cos| <= s*H/2, with A = W/2 + |dx|, B = H/2 + |dy|.
+   Returns exactly 1 when there is no rotation and no shift. */
+function coverScaleFor(rot, dx, dy, width, height) {
+  const c = Math.abs(Math.cos(rot));
+  const s = Math.abs(Math.sin(rot));
+  const A = width / 2 + Math.abs(dx);
+  const B = height / 2 + Math.abs(dy);
+  return Math.max((A * c + B * s) / (width / 2), (A * s + B * c) / (height / 2));
+}
 
 const EFFECT_TYPES = {
   shake: {
@@ -593,6 +663,105 @@ const EFFECT_TYPES = {
     params: [{ key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS }],
     hint: 'Subtly darkens the edges to emphasise a moment. Fully removed outside the window.',
   },
+
+  /* ---------------- Phase 3 ---------------- */
+  dutchTilt: {
+    label: 'Dutch Tilt',
+    defaultDuration: 1.2,
+    defaults: { direction: 'cw', degrees: 3 },
+    params: [
+      { key: 'direction', label: 'Direction', options: [['cw', 'Clockwise'], ['ccw', 'Counter-clockwise']] },
+      { key: 'degrees', label: 'Degrees', type: 'number', min: 0.5, max: DUTCH_TILT_MAX_DEG, step: 0.5 },
+    ],
+    hint: 'Eases into a tilt, holds, then returns to exactly 0°. Overscan is computed from the exact ' +
+          'rotated-rectangle coverage bound, so corners can never go black. Capped at ' + DUTCH_TILT_MAX_DEG +
+          '° — this is cinematic emphasis, not a spin.',
+  },
+  chromaAberration: {
+    label: 'Chromatic Aberration',
+    defaultDuration: 0.25,
+    defaults: { amount: 'medium', angle: 0 },
+    params: [
+      { key: 'amount', label: 'Amount', options: LEVEL_OPTIONS },
+      { key: 'angle', label: 'Angle (°)', type: 'number', min: 0, max: 360, step: 15 },
+    ],
+    hint: 'Splits the red and blue channels apart along the angle and eases back to none. ' +
+          'Best kept short — check, capture, sacrifice, mate.',
+  },
+  radialBlur: {
+    label: 'Radial Zoom Blur',
+    defaultDuration: 0.4,
+    defaults: { amount: 'medium', direction: 'in', focusX: 0.5, focusY: 0.5 },
+    params: [
+      { key: 'amount', label: 'Amount', options: LEVEL_OPTIONS },
+      { key: 'direction', label: 'Direction', options: [['in', 'Zoom in'], ['out', 'Zoom out'], ['both', 'Both']] },
+      { key: 'focusX', label: 'Focus X', type: 'number', min: 0, max: 1, step: 0.01 },
+      { key: 'focusY', label: 'Focus Y', type: 'number', min: 0, max: 1, step: 0.01 },
+    ],
+    hint: 'Streaks radiate from a focal point you drag on the preview below — put it on the mating square, ' +
+          'the king, or the captured piece. Every blur layer is scaled up about that point, so no pixel is ever left empty.',
+  },
+  directionalBlur: {
+    label: 'Directional Blur',
+    defaultDuration: 0.4,
+    defaults: { amount: 'medium', angle: 0 },
+    params: [
+      { key: 'amount', label: 'Amount', options: LEVEL_OPTIONS },
+      { key: 'angle', label: 'Angle (°)', type: 'number', min: 0, max: 360, step: 15 },
+    ],
+    hint: 'Smears along one axis — 0° horizontal for a rook slide, 90° vertical, or match a knight jump. ' +
+          'Stacks with Motion Blur rather than replacing it.',
+  },
+  freeze: {
+    label: 'Freeze / Impact Hold',
+    defaultDuration: 0.5,
+    defaults: {},
+    params: [],
+    hint: 'Holds the frame at Start for Duration seconds of extra output time, then resumes exactly where it left off. ' +
+          'Because effect windows are source times, any effect overlapping the freeze point holds with it — ' +
+          'place a flash or shake just before the freeze, not across it.',
+  },
+  glitchBurst: {
+    label: 'Glitch Burst',
+    defaultDuration: 0.15,
+    defaults: { intensity: 'medium', seed: 1 },
+    params: [
+      { key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS },
+      { key: 'seed', label: 'Seed', type: 'number', min: 1, max: 999, step: 1 },
+    ],
+    hint: 'Torn slices, scanlines and channel tearing for a few frames. The pattern comes from a hash of the ' +
+          'frame index and the seed, so it is identical on every render — change the seed to roll a different look.',
+  },
+  ghostTrail: {
+    label: 'Ghost / Echo Trail',
+    defaultDuration: 0.6,
+    defaults: { echoes: '3', spacing: 3, fade: 'medium' },
+    params: [
+      { key: 'echoes', label: 'Echoes', options: [['1', '1'], ['2', '2'], ['3', '3'], ['4', '4']] },
+      { key: 'spacing', label: 'Spacing (frames)', type: 'number', min: 1, max: 10, step: 1 },
+      { key: 'fade', label: 'Fade', options: LEVEL_OPTIONS },
+    ],
+    hint: 'Earlier rendered frames linger behind the action at decreasing opacity. Uses a bounded ring buffer ' +
+          'that starts empty on every render, so nothing leaks between exports.',
+  },
+  sharpenPunch: {
+    label: 'Sharpen Punch',
+    defaultDuration: 0.5,
+    defaults: { amount: 'low' },
+    params: [{ key: 'amount', label: 'Amount', options: LEVEL_OPTIONS }],
+    hint: 'A brief clarity lift on the board and pieces, eased in and out so nothing is permanently sharpened. ' +
+          'Keep it low — high can ring on compressed footage.',
+  },
+  filmGrain: {
+    label: 'Film Grain',
+    defaultDuration: 1.5,
+    defaults: { level: 'low' },
+    params: [
+      { key: 'level', label: 'Level', options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
+    ],
+    hint: 'Deterministic per-pixel grain generated from pixel position, frame index and a fixed seed. ' +
+          'Low is genuinely subtle; Medium reads as film without hiding board detail.',
+  },
 };
 
 function effectLabel(type) {
@@ -602,7 +771,13 @@ function effectLabel(type) {
 function effectSummary(fx) {
   const def = EFFECT_TYPES[fx.type];
   if (!def) return '';
+  if (!def.params.length) return 'hold';
   return def.params.map((p) => {
+    if (p.type === 'number') {
+      const v = Number(fx.params[p.key]);
+      const shown = isFinite(v) ? (Math.round(v * 100) / 100) : '?';
+      return p.label.replace(/\s*\(.*\)$/, '') + ' ' + shown;
+    }
     const opt = p.options.find((o) => o[0] === String(fx.params[p.key]));
     return (opt ? opt[1] : fx.params[p.key]);
   }).join(' / ');
@@ -702,6 +877,142 @@ const EffectMath = {
   maxBlurTaps(intensity) {
     return (MOTION_BLUR_WEIGHTS[intensity] || MOTION_BLUR_WEIGHTS.medium).length;
   },
+
+  /* ---------------- Phase 3 evaluators ---------------- */
+
+  // --- Dutch Tilt: ease in, hold, ease back to exactly 0 radians ---
+  dutchTilt(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return 0;
+    const deg = M.clamp(Number(params.degrees) || 0, 0, DUTCH_TILT_MAX_DEG);
+    const ATTACK = 0.25, HOLD_END = 0.75;
+    let curve;
+    if (u < ATTACK) curve = M.smoothstep(u / ATTACK);
+    else if (u < HOLD_END) curve = 1;
+    else curve = 1 - M.smoothstep((u - HOLD_END) / (1 - HOLD_END));
+    const sign = params.direction === 'ccw' ? -1 : 1;
+    return sign * deg * (Math.PI / 180) * curve;
+  },
+
+  // --- Chromatic aberration: opposing red/blue displacement along an angle ---
+  // `pad` is exactly the largest displacement, and every channel is drawn into a
+  // destination rect inflated by pad, so a shifted channel can never leave a gap.
+  chromaAberration(t, params, width) {
+    const env = M.envelope(t, params.start, params.duration, 0.12);
+    if (env <= 0) return null;
+    const mag = (CHROMA_AMOUNT[params.amount] || CHROMA_AMOUNT.medium) * width * env;
+    if (!(mag > 0)) return null;
+    const a = (Number(params.angle) || 0) * Math.PI / 180;
+    return { dx: Math.cos(a) * mag, dy: Math.sin(a) * mag };
+  },
+
+  // --- Radial zoom blur about a normalised focal point ---
+  // Every layer scale is >= 1, and scaling up about a point inside the frame
+  // always covers the canvas, so this effect cannot introduce empty pixels.
+  radialBlur(t, params) {
+    const env = M.envelope(t, params.start, params.duration, 0.12);
+    if (env <= 0) return null;
+    const amount = (RADIAL_AMOUNT[params.amount] || RADIAL_AMOUNT.medium) * env;
+    if (!(amount > 0)) return null;
+    const taps = RADIAL_TAPS[params.amount] || RADIAL_TAPS.medium;
+    const fx = M.clamp(Number(params.focusX), 0, 1);
+    const fy = M.clamp(Number(params.focusY), 0, 1);
+    const scales = [], weights = [];
+    for (let k = 0; k < taps; k++) {
+      const f = taps === 1 ? 0 : k / (taps - 1);
+      scales.push(1 + amount * f);
+      let w;
+      if (params.direction === 'out') w = f;
+      else if (params.direction === 'both') w = 1 - Math.abs(2 * f - 1);
+      else w = 1 - f;
+      weights.push(w + 0.15); // floor keeps every tap contributing to the streak
+    }
+    return { fx: isFinite(fx) ? fx : 0.5, fy: isFinite(fy) ? fy : 0.5, scales, weights };
+  },
+
+  // --- Directional blur: symmetric taps along an angle (box filter) ---
+  directionalBlur(t, params, width) {
+    const env = M.envelope(t, params.start, params.duration, 0.12);
+    if (env <= 0) return null;
+    const half = (DIR_BLUR_AMOUNT[params.amount] || DIR_BLUR_AMOUNT.medium) * width * env;
+    if (!(half > 0)) return null;
+    const taps = DIR_BLUR_TAPS[params.amount] || DIR_BLUR_TAPS.medium;
+    const a = (Number(params.angle) || 0) * Math.PI / 180;
+    const offsets = [], weights = [];
+    for (let k = 0; k < taps; k++) {
+      const f = taps === 1 ? 0 : (k / (taps - 1)) * 2 - 1;
+      offsets.push({ x: Math.cos(a) * half * f, y: Math.sin(a) * half * f });
+      weights.push(1);
+    }
+    return { offsets, weights, pad: half };
+  },
+
+  // --- Glitch burst: torn slices + scanlines, plus a channel-tear contribution ---
+  // Everything is derived from hash(frameIndex, seed, k): identical every run.
+  glitch(frameIndex, params, width, height, t) {
+    const env = M.envelope(t, params.start, params.duration, 0.05);
+    if (env <= 0) return null;
+    const cfg = GLITCH_INTENSITY[params.intensity] || GLITCH_INTENSITY.medium;
+    const seed = Math.round(Number(params.seed) || 1);
+    const slices = [];
+    for (let k = 0; k < cfg.slices; k++) {
+      const r1 = rand01(hash3(frameIndex, seed, k * 3 + 1));
+      const r2 = rand01(hash3(frameIndex, seed, k * 3 + 2));
+      const r3 = rand01(hash3(frameIndex, seed, k * 3 + 3));
+      slices.push({
+        y: Math.floor(r1 * height),
+        h: Math.max(2, Math.floor((0.015 + r2 * cfg.sliceH) * height)),
+        dx: (r3 * 2 - 1) * cfg.shift * width * env,
+      });
+    }
+    const ra = rand01(hash3(frameIndex, seed, 9001)) * Math.PI * 2;
+    const rmag = cfg.rgb * width * env;
+    return {
+      slices,
+      scan: cfg.scan * env,
+      scanOffset: hash3(frameIndex, seed, 9002) % 8,
+      chromaDx: Math.cos(ra) * rmag,
+      chromaDy: Math.sin(ra) * rmag,
+    };
+  },
+
+  // --- Ghost / echo trail: sparse taps into the rendered-frame history ---
+  ghostTrail(t, params) {
+    const env = M.envelope(t, params.start, params.duration, 0.12);
+    if (env <= 0) return null;
+    const echoes = M.clamp(Math.round(Number(params.echoes) || 3), 1, 4);
+    const spacing = M.clamp(Math.round(Number(params.spacing) || 3), 1, 10);
+    const fade = GHOST_FADE[params.fade] || GHOST_FADE.medium;
+    const taps = [{ index: 0, weight: 1 }];
+    let w = fade;
+    for (let k = 1; k <= echoes; k++) {
+      taps.push({ index: k * spacing, weight: w * env });
+      w *= fade;
+    }
+    return taps;
+  },
+
+  ghostDepth(params) {
+    const echoes = M.clamp(Math.round(Number(params.echoes) || 3), 1, 4);
+    const spacing = M.clamp(Math.round(Number(params.spacing) || 3), 1, 10);
+    return echoes * spacing + 1;
+  },
+
+  // --- Sharpen punch: enveloped unsharp amount ---
+  sharpen(t, params) {
+    const env = M.envelope(t, params.start, params.duration, 0.15);
+    if (env <= 0) return 0;
+    return (SHARPEN_AMOUNT[params.amount] || SHARPEN_AMOUNT.medium) * env;
+  },
+
+  // --- Film grain: enveloped noise amplitude ---
+  filmGrain(t, params) {
+    if (params.level === 'off') return 0;
+    const env = M.envelope(t, params.start, params.duration, 0.20);
+    if (env <= 0) return 0;
+    const s = GRAIN_STRENGTH[params.level];
+    return (s === undefined ? GRAIN_STRENGTH.low : s) * env;
+  },
 };
 
 /* =========================================================================
@@ -713,11 +1024,17 @@ const EffectMath = {
      - flash/vignette alphas combine as screen blends
      - the strongest overlapping motion blur wins
    ========================================================================= */
-function computeFrameState(effects, sourceTime, width, height) {
+function computeFrameState(effects, sourceTime, width, height, frameIndex) {
   let zoomScale = 1;
   let dx = 0, dy = 0, rot = 0, shakeMargin = 0;
   let flashAlpha = 0, vignetteAlpha = 0;
   let blurWeights = null;
+  // Phase 3 accumulators
+  let ghostTaps = null;
+  let chromaDx = 0, chromaDy = 0, chromaActive = false;
+  let radial = null, directional = null, glitch = null;
+  let sharpenAmount = 0, grainStrength = 0;
+  const fi = frameIndex || 0;
 
   for (const fx of effects) {
     if (!fx.enabled) continue;
@@ -751,16 +1068,88 @@ function computeFrameState(effects, sourceTime, width, height) {
         break;
       }
       case 'speedRamp':
-        break; // handled by the time map, not per-frame rendering
+      case 'freeze':
+        break; // time-domain effects, handled by the time map
+
+      /* ---------------- Phase 3 ---------------- */
+      case 'dutchTilt':
+        rot += EffectMath.dutchTilt(sourceTime, p);
+        break;
+      case 'chromaAberration': {
+        const c = EffectMath.chromaAberration(sourceTime, p, width);
+        if (c) { chromaDx += c.dx; chromaDy += c.dy; chromaActive = true; }
+        break;
+      }
+      case 'radialBlur': {
+        const r = EffectMath.radialBlur(sourceTime, p);
+        // Strongest wins: one radial pass keeps the cost bounded and the focal
+        // point unambiguous when two overlap.
+        if (r && (!radial || r.scales[r.scales.length - 1] > radial.scales[radial.scales.length - 1])) radial = r;
+        break;
+      }
+      case 'directionalBlur': {
+        const d = EffectMath.directionalBlur(sourceTime, p, width);
+        if (d && (!directional || d.pad > directional.pad)) directional = d;
+        break;
+      }
+      case 'glitchBurst': {
+        const g = EffectMath.glitch(fi, p, width, height, sourceTime);
+        if (g && (!glitch || g.slices.length > glitch.slices.length)) glitch = g;
+        break;
+      }
+      case 'ghostTrail': {
+        const taps = EffectMath.ghostTrail(sourceTime, p);
+        if (taps) ghostTaps = mergeTemporalTaps(ghostTaps, taps);
+        break;
+      }
+      case 'sharpenPunch':
+        sharpenAmount += EffectMath.sharpen(sourceTime, p);
+        break;
+      case 'filmGrain':
+        grainStrength = Math.max(grainStrength, EffectMath.filmGrain(sourceTime, p));
+        break;
     }
   }
 
   // One overscan factor covering every active shake's margin at this instant.
-  const overscan = shakeMargin > 0 ? 1 + (2 * shakeMargin) / Math.min(width, height) : 1;
+  // The Phase 2 shake heuristic is kept exactly as it was; the exact rotated-
+  // rectangle bound is then applied as a floor, which only ever binds when a
+  // Dutch Tilt is active (shake alone stays under it), so shake-only stacks
+  // render bit-identically to Phase 2.
+  const shakeOverscan = shakeMargin > 0 ? 1 + (2 * shakeMargin) / Math.min(width, height) : 1;
+  const overscan = Math.max(shakeOverscan, coverScaleFor(rot, dx, dy, width, height));
   const scale = zoomScale * overscan;
   const geometric = scale !== 1 || dx !== 0 || dy !== 0 || rot !== 0;
 
-  return { scale, dx, dy, rot, flashAlpha, vignetteAlpha, blurWeights, geometric };
+  // Motion Blur and Ghost Trail both read the rendered-frame history; when both
+  // are active their taps merge into one weighted blend.
+  let temporalTaps = null;
+  if (blurWeights) temporalTaps = blurWeights.map((w, i) => ({ index: i, weight: w }));
+  if (ghostTaps) temporalTaps = mergeTemporalTaps(temporalTaps, ghostTaps);
+
+  const chroma = (chromaActive || (glitch && (glitch.chromaDx || glitch.chromaDy)))
+    ? { dx: chromaDx + (glitch ? glitch.chromaDx : 0), dy: chromaDy + (glitch ? glitch.chromaDy : 0) }
+    : null;
+
+  return {
+    scale, dx, dy, rot, flashAlpha, vignetteAlpha, blurWeights, geometric,
+    temporalTaps, chroma, radial, directional, glitch,
+    sharpenAmount: Math.min(sharpenAmount, 1.5),
+    grainStrength,
+  };
+}
+
+// Combines two temporal tap lists (index into frame history -> weight),
+// summing weights that land on the same history index.
+function mergeTemporalTaps(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const byIndex = new Map();
+  for (const t of a) byIndex.set(t.index, (byIndex.get(t.index) || 0) + t.weight);
+  for (const t of b) byIndex.set(t.index, (byIndex.get(t.index) || 0) + t.weight);
+  return Array.from(byIndex.entries())
+    .map(([index, weight]) => ({ index, weight }))
+    .sort((x, y) => x.index - y.index);
 }
 
 /* =========================================================================
@@ -782,15 +1171,35 @@ const TimeMap = {
       if (e > s) ramps.push({ start: s, end: e, speed });
     }
 
+    // Freezes insert extra output time during which the source time stands
+    // still. They are modelled as zero-source-width segments with speed 0, so
+    // sourceTimeAt() returns their srcStart for the whole hold and output
+    // timestamps stay strictly increasing.
+    const holds = new Map();
+    for (const fx of effects) {
+      if (!fx.enabled || fx.type !== 'freeze') continue;
+      const at = M.clamp(fx.start, 0, sourceDuration);
+      const hold = Number(fx.duration);
+      if (!(hold > 0) || !isFinite(at)) continue;
+      holds.set(at, (holds.get(at) || 0) + hold); // stacked freezes at one point add up
+    }
+
     const points = new Set([0, sourceDuration]);
     for (const r of ramps) { points.add(r.start); points.add(r.end); }
+    for (const at of holds.keys()) points.add(at);
     const sorted = Array.from(points).filter((v) => isFinite(v)).sort((a, b) => a - b);
 
     const segments = [];
     let outT = 0;
-    for (let i = 0; i < sorted.length - 1; i++) {
-      const a = sorted[i], b = sorted[i + 1];
-      if (!(b > a)) continue;
+    for (let i = 0; i < sorted.length; i++) {
+      const a = sorted[i];
+      if (holds.has(a)) {
+        const hold = holds.get(a);
+        segments.push({ srcStart: a, srcEnd: a, outStart: outT, outEnd: outT + hold, speed: 0 });
+        outT += hold;
+      }
+      const b = sorted[i + 1];
+      if (b === undefined || !(b > a)) continue;
       const mid = (a + b) / 2;
       let speed = 1;
       for (const r of ramps) if (mid >= r.start && mid <= r.end) speed *= r.speed;
@@ -820,6 +1229,9 @@ const TimeMap = {
         const x = M.clamp(sourceTime, 0, this.sourceDuration);
         for (let i = 0; i < this.segments.length; i++) {
           const s = this.segments[i];
+          // A hold maps one source time onto a range of output times; the
+          // surrounding moving segments answer for it, so skip it here.
+          if (s.speed === 0) continue;
           if (x <= s.srcEnd || i === this.segments.length - 1) {
             return s.outStart + (x - s.srcStart) / s.speed;
           }
@@ -857,13 +1269,21 @@ const EffectStack = (() => {
   function normalize(raw) {
     const def = EFFECT_TYPES[raw.type];
     if (!def) return null;
+    const params = Object.assign({}, def.defaults, raw.params || {});
+    // Numeric parameters are stored as numbers and clamped to their range;
+    // select parameters keep their string values untouched.
+    for (const p of def.params) {
+      if (p.type !== 'number') continue;
+      const v = Number(params[p.key]);
+      params[p.key] = isFinite(v) ? M.clamp(v, p.min, p.max) : def.defaults[p.key];
+    }
     return {
       id: nextId++,
       type: raw.type,
       enabled: raw.enabled !== false,
       start: Number(raw.start) || 0,
       duration: raw.duration === undefined ? def.defaultDuration : Number(raw.duration),
-      params: Object.assign({}, def.defaults, raw.params || {}),
+      params,
     };
   }
 
@@ -913,6 +1333,17 @@ function validateRender(effects, meta, outputFps, timeMap) {
       const s = parseFloat(fx.params.speed);
       if (!(s > 0) || !isFinite(s)) errors.push(name + ': speed must be a positive number.');
     }
+    // Numeric parameters must be finite and inside their declared range,
+    // otherwise the render could produce nonsense geometry.
+    const def = EFFECT_TYPES[fx.type];
+    for (const p of (def ? def.params : [])) {
+      if (p.type !== 'number') continue;
+      const v = Number(fx.params[p.key]);
+      if (!isFinite(v)) errors.push(name + ': ' + p.label + ' must be a number.');
+      else if (v < p.min || v > p.max) {
+        errors.push(name + ': ' + p.label + ' must be between ' + p.min + ' and ' + p.max + '.');
+      }
+    }
     // An effect window narrower than the output frame spacing can fall between
     // sample points and never render. Warn instead of silently doing nothing.
     if (fx.duration > 0 && outputFps >= 1 && fx.duration < 1.5 / outputFps) {
@@ -924,6 +1355,23 @@ function validateRender(effects, meta, outputFps, timeMap) {
       warnings.push(name + ' starts at ' + fx.start.toFixed(2) + 's, at or past the end of the video, so it will never be visible.');
     } else if (isFinite(fx.start) && isFinite(fx.duration) && fx.start + fx.duration > meta.duration) {
       warnings.push(name + ' extends past the end of the video and will be cut short.');
+    }
+  }
+
+  // Effect windows are source times, so an effect spanning a freeze point holds
+  // along with the picture. Warn rather than let that surprise anyone.
+  const freezePoints = effects.filter((f) => f.enabled && f.type === 'freeze' && f.duration > 0).map((f) => f.start);
+  if (freezePoints.length) {
+    for (const fx of effects) {
+      if (!fx.enabled || fx.type === 'freeze' || fx.type === 'speedRamp') continue;
+      if (!(fx.duration > 0)) continue;
+      for (const at of freezePoints) {
+        if (fx.start < at && at < fx.start + fx.duration) {
+          warnings.push(effectLabel(fx.type) + ' spans the Freeze at ' + at.toFixed(2) + 's, so it will hold ' +
+            'still for the whole freeze. Move it to finish before the freeze if you want it to keep animating.');
+          break;
+        }
+      }
     }
   }
 
@@ -1150,6 +1598,18 @@ class FrameRenderer {
     this.blendCtx = this.blendCanvas.getContext('2d', { alpha: false });
   }
 
+  // Lazily created, reused scratch surfaces -- one per stage, allocated only
+  // when that stage is first needed and never per frame.
+  _stage(name) {
+    if (!this.stages) this.stages = {};
+    if (!this.stages[name]) {
+      const c = document.createElement('canvas');
+      c.width = this.width; c.height = this.height;
+      this.stages[name] = { canvas: c, ctx: c.getContext('2d', { alpha: false }) };
+    }
+    return this.stages[name];
+  }
+
   _gradient(ctx) {
     if (!this.vignetteGradient) {
       const cx = this.width / 2, cy = this.height / 2;
@@ -1165,7 +1625,7 @@ class FrameRenderer {
   }
 
   // Renders one output frame and returns the canvas that should be encoded.
-  render(videoElement, state) {
+  render(videoElement, state, frameIndex) {
     const W = this.width, H = this.height;
     const gctx = this.geoCtx;
 
@@ -1186,11 +1646,19 @@ class FrameRenderer {
 
     let canvas = this.geoCanvas;
     let ctx = gctx;
-    if (state.blurWeights && this.history && this.history.available() > 1) {
-      this._blend(state.blurWeights);
+    if (state.temporalTaps && this.history && this.history.available() > 1) {
+      this._blend(state.temporalTaps);
       canvas = this.blendCanvas;
       ctx = this.blendCtx;
     }
+
+    // --- spatial blurs: radial (lens/zoom) then directional ---
+    if (state.radial) { canvas = this._radial(canvas, state.radial); ctx = this._stage('radial').ctx; }
+    if (state.directional) { canvas = this._directional(canvas, state.directional); ctx = this._stage('directional').ctx; }
+
+    // --- glitch tearing, then channel separation ---
+    if (state.glitch) { canvas = this._glitch(canvas, state.glitch); ctx = this._stage('glitch').ctx; }
+    if (state.chroma) { canvas = this._chroma(canvas, state.chroma); ctx = this._stage('chroma').ctx; }
 
     // --- screen-space overlays ---
     if (state.flashAlpha > 0) {
@@ -1205,33 +1673,194 @@ class FrameRenderer {
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = 1;
     }
+
+    // --- pixel stage: sharpen then grain, in a single read/write pass ---
+    if (state.sharpenAmount > 0 || state.grainStrength > 0) {
+      this._pixelPass(ctx, state, frameIndex || 0);
+    }
     return canvas;
   }
 
-  // Weighted average of history frames via successive alpha compositing.
-  // Drawing oldest -> newest with alpha_k = w_k / (1 - sum of newer weights)
-  // yields exactly the requested weights.
-  _blend(weights) {
-    const n = Math.min(weights.length, this.history.available());
-    let w = weights.slice(0, n);
-    const sum = w.reduce((a, b) => a + b, 0);
-    if (!(sum > 0)) return;
-    w = w.map((x) => x / sum);
-
-    const alphas = new Array(n);
+  // Turns a normalised weight list into the successive-compositing alphas that
+  // reproduce it exactly: alpha_k = w_k / (1 - sum of the newer weights).
+  static _alphasFor(weights) {
+    const sum = weights.reduce((a, b) => a + b, 0);
+    if (!(sum > 0)) return null;
+    const w = weights.map((x) => x / sum);
+    const alphas = new Array(w.length);
     let prefix = 0;
-    for (let k = 0; k < n; k++) {
+    for (let k = 0; k < w.length; k++) {
       alphas[k] = w[k] / Math.max(1e-6, 1 - prefix);
       prefix += w[k];
     }
+    return alphas;
+  }
 
+  // Weighted average of history frames, drawn oldest -> newest. Taps carry an
+  // explicit history index so dense Motion Blur and sparse Ghost Trail taps
+  // both work; for dense taps this is arithmetically identical to Phase 2.
+  _blend(taps) {
+    const avail = this.history.available();
+    const usable = taps.filter((t) => t.index < avail);
+    if (usable.length === 0) return;
+    const alphas = FrameRenderer._alphasFor(usable.map((t) => t.weight));
+    if (!alphas) return;
     const ctx = this.blendCtx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    for (let k = n - 1; k >= 0; k--) {
+    for (let k = usable.length - 1; k >= 0; k--) {
       ctx.globalAlpha = M.clamp(alphas[k], 0, 1);
-      ctx.drawImage(this.history.get(k), 0, 0);
+      ctx.drawImage(this.history.get(usable[k].index), 0, 0);
     }
     ctx.globalAlpha = 1;
+  }
+
+  // Radial zoom blur: layers scaled about the focal point. Every scale is >= 1
+  // and the focal point lies inside the frame, so each layer covers the canvas.
+  _radial(src, r) {
+    const W = this.width, H = this.height;
+    const out = this._stage('radial');
+    const ctx = out.ctx;
+    const alphas = FrameRenderer._alphasFor(r.weights);
+    if (!alphas) return src;
+    const fpx = r.fx * W, fpy = r.fy * H;
+    for (let k = r.scales.length - 1; k >= 0; k--) {
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalAlpha = M.clamp(alphas[k], 0, 1);
+      ctx.translate(fpx, fpy);
+      ctx.scale(r.scales[k], r.scales[k]);
+      ctx.translate(-fpx, -fpy);
+      ctx.drawImage(src, 0, 0, W, H);
+    }
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    return out.canvas;
+  }
+
+  // Directional blur: taps translated along one axis. Each tap is drawn into a
+  // destination rect inflated by `pad` (the largest offset), so a shifted tap
+  // can never leave an uncovered edge.
+  _directional(src, d) {
+    const W = this.width, H = this.height;
+    const out = this._stage('directional');
+    const ctx = out.ctx;
+    const alphas = FrameRenderer._alphasFor(d.weights);
+    if (!alphas) return src;
+    const pad = d.pad;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    for (let k = d.offsets.length - 1; k >= 0; k--) {
+      ctx.globalAlpha = M.clamp(alphas[k], 0, 1);
+      ctx.drawImage(src, 0, 0, W, H,
+        d.offsets[k].x - pad, d.offsets[k].y - pad, W + 2 * pad, H + 2 * pad);
+    }
+    ctx.globalAlpha = 1;
+    return out.canvas;
+  }
+
+  // Glitch burst: the untouched frame is laid down first, then displaced slices
+  // are drawn over it, so a shifted slice reveals real pixels, never a gap.
+  _glitch(src, g) {
+    const W = this.width, H = this.height;
+    const out = this._stage('glitch');
+    const ctx = out.ctx;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(src, 0, 0);
+    for (const s of g.slices) {
+      const h = Math.min(s.h, H - s.y);
+      if (h <= 0) continue;
+      ctx.drawImage(src, 0, s.y, W, h, s.dx, s.y, W, h);
+    }
+    if (g.scan > 0) {
+      ctx.globalAlpha = M.clamp(g.scan, 0, 1);
+      ctx.fillStyle = '#000000';
+      for (let y = g.scanOffset; y < H; y += 4) ctx.fillRect(0, y, W, 1);
+      ctx.globalAlpha = 1;
+    }
+    return out.canvas;
+  }
+
+  // Chromatic aberration: isolate each channel by multiplying with a pure
+  // primary, then add the three shifted copies back together. Each channel is
+  // drawn into a rect inflated by the shift magnitude, so no channel leaves a
+  // gap at the frame edge; with zero shift this is an exact copy.
+  _chroma(src, c) {
+    const W = this.width, H = this.height;
+    const out = this._stage('chroma');
+    const scratch = this._stage('chromaScratch');
+    const pad = Math.max(Math.abs(c.dx), Math.abs(c.dy));
+    const channels = [
+      ['#ff0000', c.dx, c.dy],
+      ['#00ff00', 0, 0],
+      ['#0000ff', -c.dx, -c.dy],
+    ];
+    out.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    out.ctx.globalAlpha = 1;
+    out.ctx.globalCompositeOperation = 'source-over';
+    out.ctx.fillStyle = '#000000';
+    out.ctx.fillRect(0, 0, W, H);
+    for (const [colour, ox, oy] of channels) {
+      const sctx = scratch.ctx;
+      sctx.setTransform(1, 0, 0, 1, 0, 0);
+      sctx.globalAlpha = 1;
+      sctx.globalCompositeOperation = 'source-over';
+      sctx.drawImage(src, 0, 0, W, H, ox - pad, oy - pad, W + 2 * pad, H + 2 * pad);
+      sctx.globalCompositeOperation = 'multiply';
+      sctx.fillStyle = colour;
+      sctx.fillRect(0, 0, W, H);
+      sctx.globalCompositeOperation = 'source-over';
+      out.ctx.globalCompositeOperation = 'lighter';
+      out.ctx.drawImage(scratch.canvas, 0, 0);
+    }
+    out.ctx.globalCompositeOperation = 'source-over';
+    return out.canvas;
+  }
+
+  // Single pixel pass: unsharp-mask sharpen, then additive grain. Pure integer
+  // arithmetic on the pixel buffer, so it is bit-exact on every run.
+  _pixelPass(ctx, state, frameIndex) {
+    const W = this.width, H = this.height;
+    const img = ctx.getImageData(0, 0, W, H);
+    const d = img.data;
+
+    if (state.sharpenAmount > 0) {
+      const a = state.sharpenAmount;
+      const centre = 1 + 4 * a;
+      if (!this.sharpenBuf || this.sharpenBuf.length !== d.length) {
+        this.sharpenBuf = new Uint8ClampedArray(d.length);
+      }
+      const buf = this.sharpenBuf;
+      buf.set(d);
+      const rowBytes = W * 4;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const i = y * rowBytes + x * 4;
+          for (let ch = 0; ch < 3; ch++) {
+            const p = i + ch;
+            // Edge pixels replicate themselves, so borders stay clean.
+            const up = y > 0 ? buf[p - rowBytes] : buf[p];
+            const dn = y < H - 1 ? buf[p + rowBytes] : buf[p];
+            const lf = x > 0 ? buf[p - 4] : buf[p];
+            const rt = x < W - 1 ? buf[p + 4] : buf[p];
+            d[p] = centre * buf[p] - a * (up + dn + lf + rt);
+          }
+        }
+      }
+    }
+
+    if (state.grainStrength > 0) {
+      const s = state.grainStrength;
+      for (let y = 0; y < H; y++) {
+        const row = y * W;
+        for (let x = 0; x < W; x++) {
+          const n = (rand01(hash3(row + x, frameIndex, GRAIN_SEED)) - 0.5) * 2 * s;
+          const i = (row + x) * 4;
+          d[i] += n; d[i + 1] += n; d[i + 2] += n;
+        }
+      }
+    }
+
+    ctx.putImageData(img, 0, 0);
   }
 }
 
@@ -1267,10 +1896,16 @@ async function renderPipeline({ video, meta, effects, outputFps, timeMap, onProg
   const muxer = new WebMMuxer({ width, height, codecId: 'V_VP8', durationMs: timeMap.outputDuration * 1000 });
 
   const renderer = new FrameRenderer(width, height);
-  const blurTaps = effects
-    .filter((fx) => fx.enabled && fx.type === 'motionBlur')
-    .reduce((max, fx) => Math.max(max, EffectMath.maxBlurTaps(fx.params.intensity)), 0);
-  if (blurTaps > 0) renderer.enableHistory(blurTaps);
+  // Frame history is shared by Motion Blur and Ghost Trail; size it to the
+  // deepest tap either of them can reach. The ring starts empty on every
+  // render, so no frame can survive from a previous export.
+  let historyDepth = 0;
+  for (const fx of effects) {
+    if (!fx.enabled) continue;
+    if (fx.type === 'motionBlur') historyDepth = Math.max(historyDepth, EffectMath.maxBlurTaps(fx.params.intensity));
+    if (fx.type === 'ghostTrail') historyDepth = Math.max(historyDepth, EffectMath.ghostDepth(fx.params));
+  }
+  if (historyDepth > 0) renderer.enableHistory(historyDepth);
 
   let encodeError = null;
   const encoder = new VideoEncoder({
@@ -1297,8 +1932,8 @@ async function renderPipeline({ video, meta, effects, outputFps, timeMap, onProg
 
       await seekVideoTo(video, sourceTime);
 
-      const state = computeFrameState(effects, sourceTime, width, height);
-      const canvas = renderer.render(video, state);
+      const state = computeFrameState(effects, sourceTime, width, height, i);
+      const canvas = renderer.render(video, state, i);
 
       if (encoder.encodeQueueSize > 8) {
         await new Promise((resolve) => {
@@ -1454,6 +2089,13 @@ function renderEffectEditor() {
   }));
 
   for (const p of EFFECT_TYPES[fx.type].params) {
+    if (p.type === 'number') {
+      row.appendChild(numberField(p.label, Number(fx.params[p.key]), p.min, p.step, (v) => {
+        fx.params[p.key] = M.clamp(isFinite(v) ? v : p.min, p.min, p.max);
+        refreshEffectsUI();
+      }, p.max));
+      continue;
+    }
     const field = document.createElement('div');
     field.className = 'field';
     const label = document.createElement('label');
@@ -1477,9 +2119,123 @@ function renderEffectEditor() {
   hint.className = 'hint';
   hint.textContent = EFFECT_TYPES[fx.type].hint;
   host.appendChild(hint);
+
+  // Radial Zoom Blur gets a direct-manipulation focal point on a still preview.
+  if (fx.type === 'radialBlur') host.appendChild(buildFocalPointControl(fx));
 }
 
-function numberField(labelText, value, min, step, onChange) {
+/* ---- Radial Zoom Blur focal-point picker ----
+   Renders ONE frame through the real pipeline and lets the focal point be
+   dragged on it. The crosshair is a DOM overlay on a preview canvas, entirely
+   outside the render path, so no guide can ever reach the exported video. */
+function buildFocalPointControl(fx) {
+  const wrap = document.createElement('div');
+  wrap.className = 'focal-wrap';
+
+  const title = document.createElement('label');
+  title.textContent = 'Focal point — drag the crosshair (guides are editor-only and never exported)';
+  title.style.fontSize = '12px';
+  title.style.color = 'var(--muted)';
+  wrap.appendChild(title);
+
+  if (!meta) {
+    const note = document.createElement('p');
+    note.className = 'hint';
+    note.textContent = 'Load a video to place the focal point.';
+    wrap.appendChild(note);
+    return wrap;
+  }
+
+  const stage = document.createElement('div');
+  stage.className = 'focal-stage';
+  const displayW = Math.min(420, meta.width);
+  const displayH = Math.round(displayW * meta.height / meta.width);
+  stage.style.width = displayW + 'px';
+  stage.style.height = displayH + 'px';
+
+  const canvas = document.createElement('canvas');
+  canvas.width = displayW;
+  canvas.height = displayH;
+  canvas.className = 'focal-canvas';
+  stage.appendChild(canvas);
+
+  const marker = document.createElement('div');
+  marker.className = 'focal-marker';
+  stage.appendChild(marker);
+
+  function placeMarker() {
+    marker.style.left = (M.clamp(Number(fx.params.focusX), 0, 1) * 100) + '%';
+    marker.style.top = (M.clamp(Number(fx.params.focusY), 0, 1) * 100) + '%';
+  }
+  placeMarker();
+
+  const status = document.createElement('p');
+  status.className = 'hint';
+  wrap.append(stage, status);
+
+  function setFromEvent(e) {
+    const rect = stage.getBoundingClientRect();
+    fx.params.focusX = M.clamp((e.clientX - rect.left) / rect.width, 0, 1);
+    fx.params.focusY = M.clamp((e.clientY - rect.top) / rect.height, 0, 1);
+    placeMarker();
+  }
+
+  let dragging = false;
+  stage.addEventListener('pointerdown', (e) => {
+    if (busy) return;
+    dragging = true;
+    setFromEvent(e);
+    // Capture keeps the drag alive outside the box, but it is only an
+    // enhancement -- never let it stop the point from being set.
+    try { stage.setPointerCapture(e.pointerId); } catch (err) { /* not supported */ }
+    e.preventDefault();
+  });
+  stage.addEventListener('pointermove', (e) => { if (dragging) setFromEvent(e); });
+  stage.addEventListener('pointerup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    setFromEvent(e);
+    try { stage.releasePointerCapture(e.pointerId); } catch (err) { /* ignore */ }
+    renderFocalStill(fx, canvas, status);
+    renderEffectList();
+  });
+
+  renderFocalStill(fx, canvas, status);
+  return wrap;
+}
+
+// Renders a single frame at the effect's peak through the SAME pipeline used by
+// preview and export, so the focal preview shows the real result.
+let focalStillToken = 0;
+async function renderFocalStill(fx, canvas, status) {
+  if (!meta || busy) return;
+  const token = ++focalStillToken;
+  status.textContent = 'Rendering focal preview…';
+  try {
+    const effects = EffectStack.snapshot();
+    const outputFps = currentOutputFps();
+    const timeMap = TimeMap.build(effects, meta.duration);
+    const peak = M.clamp(fx.start + fx.duration / 2, 0, Math.max(0, meta.duration - (1 / outputFps) / 2));
+    const frameIndex = Math.round(timeMap.outputTimeAt(peak) * outputFps);
+
+    await seekVideoTo(sourceVideo, peak);
+    if (token !== focalStillToken) return;
+
+    const renderer = new FrameRenderer(meta.width, meta.height);
+    const state = computeFrameState(effects, peak, meta.width, meta.height, frameIndex);
+    const rendered = renderer.render(sourceVideo, state, frameIndex);
+
+    const ctx = canvas.getContext('2d', { alpha: false });
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.drawImage(rendered, 0, 0, canvas.width, canvas.height);
+    status.textContent = 'Showing source time ' + peak.toFixed(2) + 's with the current stack applied. ' +
+      'Focal point: ' + Number(fx.params.focusX).toFixed(2) + ', ' + Number(fx.params.focusY).toFixed(2) + '.';
+  } catch (err) {
+    status.textContent = 'Focal preview unavailable: ' + err.message;
+  }
+}
+
+function numberField(labelText, value, min, step, onChange, max) {
   const field = document.createElement('div');
   field.className = 'field';
   const label = document.createElement('label');
@@ -1487,6 +2243,7 @@ function numberField(labelText, value, min, step, onChange) {
   const input = document.createElement('input');
   input.type = 'number';
   input.min = String(min);
+  if (max !== undefined) input.max = String(max);
   input.step = String(step);
   input.value = String(Math.round(value * 1000) / 1000);
   input.disabled = busy;
@@ -1582,6 +2339,12 @@ async function runRender(kind, wrapId, barId, statusId) {
   }
   warnings.forEach((w) => Log.warn(w));
 
+  // A second <video> element decoding in the same page can, rarely, make the
+  // source element hand drawImage() a stale frame -- reproduced as a one-frame
+  // difference when an export follows a preview. The processed preview is
+  // therefore detached for the duration of the render and restored afterwards.
+  const restoreProcessedPreview = await quiesceProcessedPreview();
+
   setBusy(true);
   document.getElementById(wrapId).style.display = 'block';
   const bar = document.getElementById(barId);
@@ -1611,8 +2374,22 @@ async function runRender(kind, wrapId, barId, statusId) {
   } finally {
     setBusy(false);
     sourceVideo.pause();
+    restoreProcessedPreview();
     refreshEffectsUI();
   }
+}
+
+// Detaches the processed-preview video so it is not decoding while we render,
+// returning a function that puts it back exactly as it was.
+async function quiesceProcessedPreview() {
+  const previousSrc = processedVideo.getAttribute('src');
+  if (!previousSrc) return () => {};
+  processedVideo.pause();
+  processedVideo.removeAttribute('src');
+  processedVideo.load(); // releases the element's decoder
+  return () => {
+    processedVideo.setAttribute('src', previousSrc);
+  };
 }
 
 previewBtn.addEventListener('click', async () => {
@@ -1680,6 +2457,7 @@ exportBtn.addEventListener('click', async () => {
 window.VEL = {
   EFFECT_TYPES, EffectMath, M, TimeMap, EffectStack,
   computeFrameState, validateRender, renderPipeline, FrameRenderer,
+  coverScaleFor, hash3, mergeTemporalTaps, seekVideoTo,
   getMeta: () => meta,
   getOutputFps: currentOutputFps,
   setEffects(list) { EffectStack.replaceAll(list); refreshEffectsUI(); },
