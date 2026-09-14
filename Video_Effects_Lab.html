@@ -227,9 +227,33 @@
     <p class="hint">All effect times are in <strong>source video time</strong> (the timeline of your original clip), so they stay anchored to the content even when a Speed Ramp changes the output length.</p>
   </section>
 
+  <!-- ================= 3. HOOK OVERLAY ================= -->
+  <section class="card">
+    <h2><span class="num">3</span>Hook Overlay</h2>
+    <div class="checkbox-row" style="margin-bottom:10px;">
+      <input type="checkbox" id="hookEnabled">
+      <label for="hookEnabled">Burn a hook into the start of the video</label>
+    </div>
+    <div class="row">
+      <div class="field" style="flex:1 1 320px;">
+        <label for="hookText">Hook text</label>
+        <input type="text" id="hookText" maxlength="120" placeholder="He sacrificed the queen." style="width:100%;">
+      </div>
+      <div class="field">
+        <label for="hookDuration">Duration (s)</label>
+        <input type="number" id="hookDuration" min="0.1" max="10" step="0.1" value="1.2">
+      </div>
+      <div class="field">
+        <label for="hookFontPct">Font size (% of frame)</label>
+        <input type="number" id="hookFontPct" min="2" max="25" step="0.5" value="9">
+      </div>
+    </div>
+    <p class="hint" id="hookHint"></p>
+  </section>
+
   <!-- ================= 3. PREVIEW ================= -->
   <section class="card">
-    <h2><span class="num">3</span>Preview</h2>
+    <h2><span class="num">4</span>Preview</h2>
     <div class="videos">
       <div class="video-block">
         <h3>Original</h3>
@@ -253,7 +277,7 @@
 
   <!-- ================= 4. EXPORT ================= -->
   <section class="card">
-    <h2><span class="num">4</span>Export</h2>
+    <h2><span class="num">5</span>Export</h2>
     <div class="row">
       <button id="exportBtn" disabled>Export as WebM</button>
     </div>
@@ -572,14 +596,12 @@ const GLITCH_INTENSITY = {
 };
 const GHOST_FADE = { low: 0.22, medium: 0.36, high: 0.50 };            // weight of each successive echo
 const SHARPEN_AMOUNT = { low: 0.25, medium: 0.50, high: 0.90 };
-const GRAIN_STRENGTH = { off: 0, low: 4, medium: 9, high: 16 };        // +/- levels on a 0-255 scale
-const GRAIN_SEED = 0x5eed;
 
 const LEVEL_OPTIONS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
 
-/* Deterministic integer hash -> used for Glitch Burst and Film Grain.
-   Pure arithmetic on frame index / pixel position / seed: never Math.random(),
-   never a clock, so every run reproduces the same pattern exactly. */
+/* Deterministic integer hash -> used by Glitch Burst.
+   Pure arithmetic on frame index / seed: never Math.random(), never a clock,
+   so every run reproduces the same pattern exactly. */
 function hash3(a, b, c) {
   let x = Math.imul(a | 0, 374761393) + Math.imul(b | 0, 668265263) + Math.imul(c | 0, 2246822519);
   x = Math.imul(x ^ (x >>> 13), 1274126177);
@@ -751,16 +773,6 @@ const EFFECT_TYPES = {
     params: [{ key: 'amount', label: 'Amount', options: LEVEL_OPTIONS }],
     hint: 'A brief clarity lift on the board and pieces, eased in and out so nothing is permanently sharpened. ' +
           'Keep it low — high can ring on compressed footage.',
-  },
-  filmGrain: {
-    label: 'Film Grain',
-    defaultDuration: 1.5,
-    defaults: { level: 'low' },
-    params: [
-      { key: 'level', label: 'Level', options: [['off', 'Off'], ['low', 'Low'], ['medium', 'Medium'], ['high', 'High']] },
-    ],
-    hint: 'Deterministic per-pixel grain generated from pixel position, frame index and a fixed seed. ' +
-          'Low is genuinely subtle; Medium reads as film without hiding board detail.',
   },
 };
 
@@ -1005,14 +1017,6 @@ const EffectMath = {
     return (SHARPEN_AMOUNT[params.amount] || SHARPEN_AMOUNT.medium) * env;
   },
 
-  // --- Film grain: enveloped noise amplitude ---
-  filmGrain(t, params) {
-    if (params.level === 'off') return 0;
-    const env = M.envelope(t, params.start, params.duration, 0.20);
-    if (env <= 0) return 0;
-    const s = GRAIN_STRENGTH[params.level];
-    return (s === undefined ? GRAIN_STRENGTH.low : s) * env;
-  },
 };
 
 /* =========================================================================
@@ -1033,7 +1037,7 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
   let ghostTaps = null;
   let chromaDx = 0, chromaDy = 0, chromaActive = false;
   let radial = null, directional = null, glitch = null;
-  let sharpenAmount = 0, grainStrength = 0;
+  let sharpenAmount = 0;
   const fi = frameIndex || 0;
 
   for (const fx of effects) {
@@ -1105,9 +1109,6 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
       case 'sharpenPunch':
         sharpenAmount += EffectMath.sharpen(sourceTime, p);
         break;
-      case 'filmGrain':
-        grainStrength = Math.max(grainStrength, EffectMath.filmGrain(sourceTime, p));
-        break;
     }
   }
 
@@ -1135,7 +1136,6 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
     scale, dx, dy, rot, flashAlpha, vignetteAlpha, blurWeights, geometric,
     temporalTaps, chroma, radial, directional, glitch,
     sharpenAmount: Math.min(sharpenAmount, 1.5),
-    grainStrength,
   };
 }
 
@@ -1150,6 +1150,68 @@ function mergeTemporalTaps(a, b) {
   return Array.from(byIndex.entries())
     .map(([index, weight]) => ({ index, weight }))
     .sort((x, y) => x.index - y.index);
+}
+
+/* =========================================================================
+   MODULE: Hook Overlay (V1)
+   A single short hook burned into the top of the clip. Deliberately NOT an
+   effect-stack item: it is a final screen overlay, so it never takes part in
+   camera geometry, overscan, frame history or any of the blur/glitch stages.
+   It is governed by OUTPUT time, so a Freeze or Speed Ramp cannot stretch or
+   shift it -- 1.2s of hook is 1.2s of finished video.
+   ========================================================================= */
+const HOOK_START = 0;            // V1: the hook always opens the clip
+const HOOK_VERTICAL = 0.58;      // fraction of canvas height, just below centre
+const HOOK_POP_SCALE = 0.18;     // how much larger the first frames are
+const HOOK_POP_SECONDS = 0.12;   // how long the snap takes to settle
+const HOOK_SAFE_WIDTH = 0.90;    // text is fitted inside this fraction of width
+const HOOK_FONT_STACK = '900 {px}px system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
+const HOOK_DEFAULTS = { enabled: false, text: '', duration: 1.2, fontPct: 9 };
+
+// Pure function of output time and canvas size: no clock, no randomness.
+// Returns null when the hook should not be drawn on this frame.
+function computeHookState(hook, outputTime, width, height) {
+  if (!hook || !hook.enabled) return null;
+  const text = String(hook.text === undefined ? '' : hook.text);
+  if (!text.trim()) return null;
+  const duration = Number(hook.duration);
+  if (!(duration > 0)) return null;
+
+  const elapsed = outputTime - HOOK_START;
+  if (elapsed < 0 || elapsed >= duration) return null;
+
+  // Snap entrance: starts slightly oversized and settles to 100%.
+  const popWindow = Math.min(HOOK_POP_SECONDS, duration * 0.25);
+  const popScale = popWindow > 0 && elapsed < popWindow
+    ? 1 + HOOK_POP_SCALE * (1 - M.smoothstep(elapsed / popWindow))
+    : 1;
+
+  const pct = Number(hook.fontPct);
+  const basePx = (isFinite(pct) ? pct : HOOK_DEFAULTS.fontPct) / 100 * Math.min(width, height);
+
+  return {
+    text,
+    basePx: Math.max(1, basePx),
+    popScale,
+    x: width / 2,
+    y: height * HOOK_VERTICAL,
+    maxWidth: width * HOOK_SAFE_WIDTH,
+  };
+}
+
+// Shrinks the font until the text fits the safe width. Text is never truncated.
+// measureText is deterministic for a given font/size/string, so preview and
+// export fit identically.
+function fitHookFontPx(ctx, text, basePx, maxWidth) {
+  let px = basePx;
+  for (let i = 0; i < 8; i++) {
+    ctx.font = HOOK_FONT_STACK.replace('{px}', String(px));
+    const w = ctx.measureText(text).width;
+    if (!(w > maxWidth) || !(w > 0)) break;
+    px = px * (maxWidth / w);
+  }
+  return px;
 }
 
 /* =========================================================================
@@ -1316,7 +1378,7 @@ const EffectStack = (() => {
    MODULE: Validation -- invalid settings must never silently produce
    corrupt output, so rendering refuses to start instead.
    ========================================================================= */
-function validateRender(effects, meta, outputFps, timeMap) {
+function validateRender(effects, meta, outputFps, timeMap, hook) {
   const errors = [];
   const warnings = [];
   if (!meta) { errors.push('No video is loaded.'); return { errors, warnings }; }
@@ -1373,6 +1435,15 @@ function validateRender(effects, meta, outputFps, timeMap) {
         }
       }
     }
+  }
+
+  if (hook && hook.enabled) {
+    if (!String(hook.text === undefined ? '' : hook.text).trim()) {
+      warnings.push('Hook Overlay is on but the text is empty, so nothing will be drawn.');
+    }
+    if (!(Number(hook.duration) > 0)) errors.push('Hook Overlay: duration must be greater than zero.');
+    const pct = Number(hook.fontPct);
+    if (!isFinite(pct) || pct < 2 || pct > 25) errors.push('Hook Overlay: font size must be between 2% and 25% of the frame.');
   }
 
   if (timeMap) {
@@ -1625,7 +1696,7 @@ class FrameRenderer {
   }
 
   // Renders one output frame and returns the canvas that should be encoded.
-  render(videoElement, state, frameIndex) {
+  render(videoElement, state, frameIndex, hookState) {
     const W = this.width, H = this.height;
     const gctx = this.geoCtx;
 
@@ -1674,11 +1745,55 @@ class FrameRenderer {
       ctx.globalAlpha = 1;
     }
 
-    // --- pixel stage: sharpen then grain, in a single read/write pass ---
-    if (state.sharpenAmount > 0 || state.grainStrength > 0) {
+    // --- pixel stage: unsharp-mask sharpen ---
+    if (state.sharpenAmount > 0) {
       this._pixelPass(ctx, state, frameIndex || 0);
     }
+
+    // --- hook overlay: the very last thing drawn, so the text stays crisp no
+    // matter what the frame underneath was put through ---
+    if (hookState) this._drawHook(ctx, hookState);
+
     return canvas;
+  }
+
+  // Heavy white sans with a dark outline and drop shadow -- a social-video hook
+  // rather than a subtitle. Fully deterministic given the hook state.
+  _drawHook(ctx, hook) {
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+
+    const px = fitHookFontPx(ctx, hook.text, hook.basePx, hook.maxWidth);
+    ctx.font = HOOK_FONT_STACK.replace('{px}', String(px));
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.miterLimit = 2;
+
+    // Snap entrance scales about the text anchor so it stays centred.
+    if (hook.popScale !== 1) {
+      ctx.translate(hook.x, hook.y);
+      ctx.scale(hook.popScale, hook.popScale);
+      ctx.translate(-hook.x, -hook.y);
+    }
+
+    // Outline carries the shadow; the fill is then drawn clean on top.
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = px * 0.25;
+    ctx.shadowOffsetY = px * 0.06;
+    ctx.lineWidth = px * 0.16;
+    ctx.strokeStyle = '#000000';
+    ctx.strokeText(hook.text, hook.x, hook.y);
+
+    ctx.shadowColor = 'rgba(0,0,0,0)';
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(hook.text, hook.x, hook.y);
+
+    ctx.restore();
   }
 
   // Turns a normalised weight list into the successive-compositing alphas that
@@ -1816,8 +1931,8 @@ class FrameRenderer {
     return out.canvas;
   }
 
-  // Single pixel pass: unsharp-mask sharpen, then additive grain. Pure integer
-  // arithmetic on the pixel buffer, so it is bit-exact on every run.
+  // Pixel pass: unsharp-mask sharpen. Pure integer arithmetic on the pixel
+  // buffer, so it is bit-exact on every run.
   _pixelPass(ctx, state, frameIndex) {
     const W = this.width, H = this.height;
     const img = ctx.getImageData(0, 0, W, H);
@@ -1848,17 +1963,6 @@ class FrameRenderer {
       }
     }
 
-    if (state.grainStrength > 0) {
-      const s = state.grainStrength;
-      for (let y = 0; y < H; y++) {
-        const row = y * W;
-        for (let x = 0; x < W; x++) {
-          const n = (rand01(hash3(row + x, frameIndex, GRAIN_SEED)) - 0.5) * 2 * s;
-          const i = (row + x) * 4;
-          d[i] += n; d[i + 1] += n; d[i + 2] += n;
-        }
-      }
-    }
 
     ctx.putImageData(img, 0, 0);
   }
@@ -1876,7 +1980,7 @@ function estimateBitrate(width, height, fps) {
   return Math.max(500000, Math.round(width * height * fps * bitsPerPixelPerFrame));
 }
 
-async function renderPipeline({ video, meta, effects, outputFps, timeMap, onProgress }) {
+async function renderPipeline({ video, meta, effects, outputFps, timeMap, hook, onProgress }) {
   if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
     throw new Error('WebCodecs VideoEncoder is not available in this browser. Video Effects Lab requires a recent desktop Chrome.');
   }
@@ -1933,7 +2037,10 @@ async function renderPipeline({ video, meta, effects, outputFps, timeMap, onProg
       await seekVideoTo(video, sourceTime);
 
       const state = computeFrameState(effects, sourceTime, width, height, i);
-      const canvas = renderer.render(video, state, i);
+      // The hook is a screen overlay: it follows output time, so a Freeze or
+      // Speed Ramp never stretches or shifts it.
+      const hookState = computeHookState(hook, outputTime, width, height);
+      const canvas = renderer.render(video, state, i, hookState);
 
       if (encoder.encodeQueueSize > 8) {
         await new Promise((resolve) => {
@@ -1991,6 +2098,36 @@ function currentTimeMap() {
   return TimeMap.build(EffectStack.all(), meta ? meta.duration : 0);
 }
 
+/* ---- Hook Overlay UI state ---- */
+function currentHook() {
+  const duration = parseFloat(document.getElementById('hookDuration').value);
+  const fontPct = parseFloat(document.getElementById('hookFontPct').value);
+  return {
+    enabled: document.getElementById('hookEnabled').checked,
+    text: document.getElementById('hookText').value,
+    duration: isFinite(duration) ? duration : HOOK_DEFAULTS.duration,
+    fontPct: isFinite(fontPct) ? fontPct : HOOK_DEFAULTS.fontPct,
+  };
+}
+
+function updateHookHint() {
+  const hint = document.getElementById('hookHint');
+  const hook = currentHook();
+  if (!hook.enabled) {
+    hint.textContent = 'Off. When enabled the hook opens the video, centred and just below the middle, ' +
+      'and is drawn after every effect so it stays sharp.';
+    return;
+  }
+  if (!hook.text.trim()) {
+    hint.textContent = 'Enter the hook text — nothing is drawn while it is empty.';
+    return;
+  }
+  const px = meta ? Math.round(hook.fontPct / 100 * Math.min(meta.width, meta.height)) : null;
+  hint.textContent = 'Shows from 0.00s to ' + hook.duration.toFixed(2) + 's of the finished video' +
+    (px ? ', about ' + px + 'px tall at this resolution' : '') +
+    '. Long text is scaled down to fit, never cut.';
+}
+
 function setBusy(value) {
   busy = value;
   previewBtn.disabled = value || !meta;
@@ -1998,6 +2135,9 @@ function setBusy(value) {
   addEffectBtn.disabled = value || !meta;
   fileInput.disabled = value;
   document.querySelectorAll('#effectEditor input, #effectEditor select').forEach((el) => { el.disabled = value; });
+  ['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
+    document.getElementById(id).disabled = value;
+  });
 }
 
 /* ---- effect list rendering ---- */
@@ -2223,7 +2363,8 @@ async function renderFocalStill(fx, canvas, status) {
 
     const renderer = new FrameRenderer(meta.width, meta.height);
     const state = computeFrameState(effects, peak, meta.width, meta.height, frameIndex);
-    const rendered = renderer.render(sourceVideo, state, frameIndex);
+    const hookState = computeHookState(currentHook(), timeMap.outputTimeAt(peak), meta.width, meta.height);
+    const rendered = renderer.render(sourceVideo, state, frameIndex, hookState);
 
     const ctx = canvas.getContext('2d', { alpha: false });
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2325,12 +2466,20 @@ addEffectBtn.addEventListener('click', () => {
 
 document.getElementById('outputFpsInput').addEventListener('change', updateOutputDurationInfo);
 
+['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
+  const el = document.getElementById(id);
+  el.addEventListener('input', updateHookHint);
+  el.addEventListener('change', updateHookHint);
+});
+
 /* ---- shared render driver for Preview and Export ---- */
 async function runRender(kind, wrapId, barId, statusId) {
   const effects = EffectStack.snapshot();
   const outputFps = currentOutputFps();
   const timeMap = TimeMap.build(effects, meta ? meta.duration : 0);
-  const { errors, warnings } = validateRender(effects, meta, outputFps, timeMap);
+  // Snapshot the hook too, so edits during a render cannot change it mid-way.
+  const hook = currentHook();
+  const { errors, warnings } = validateRender(effects, meta, outputFps, timeMap, hook);
 
   if (errors.length) {
     setStatus(statusId, 'Cannot render:\n  • ' + errors.join('\n  • '), 'error');
@@ -2362,6 +2511,7 @@ async function runRender(kind, wrapId, barId, statusId) {
       effects,
       outputFps,
       timeMap,
+      hook,
       onProgress: (frac) => { bar.style.width = (frac * 100).toFixed(1) + '%'; },
     });
     result.elapsed = (performance.now() - startedAt) / 1000;
@@ -2450,6 +2600,7 @@ exportBtn.addEventListener('click', async () => {
     Log.info('WebCodecs available. Ready.');
   }
   refreshEffectsUI();
+  updateHookHint();
 })();
 
 /* Exposed for debugging and for the automated test harness. Everything here is
@@ -2458,6 +2609,16 @@ window.VEL = {
   EFFECT_TYPES, EffectMath, M, TimeMap, EffectStack,
   computeFrameState, validateRender, renderPipeline, FrameRenderer,
   coverScaleFor, hash3, mergeTemporalTaps, seekVideoTo,
+  computeHookState, fitHookFontPx, HOOK_DEFAULTS,
+  HOOK_START, HOOK_VERTICAL, HOOK_SAFE_WIDTH, HOOK_POP_SECONDS, HOOK_POP_SCALE,
+  getHook: currentHook,
+  setHook(h) {
+    document.getElementById('hookEnabled').checked = !!h.enabled;
+    document.getElementById('hookText').value = h.text === undefined ? '' : h.text;
+    if (h.duration !== undefined) document.getElementById('hookDuration').value = String(h.duration);
+    if (h.fontPct !== undefined) document.getElementById('hookFontPct').value = String(h.fontPct);
+    updateHookHint();
+  },
   getMeta: () => meta,
   getOutputFps: currentOutputFps,
   setEffects(list) { EffectStack.replaceAll(list); refreshEffectsUI(); },
