@@ -267,8 +267,10 @@
     </div>
     <div class="row" style="margin-top:12px;">
       <button id="previewBtn" disabled>Generate Preview</button>
-      <span class="hint" style="margin:0;">Preview runs the exact same render pipeline as Export, so what you see is what you get.</span>
+      <button id="downloadPreviewBtn" class="secondary" disabled>Download WebM</button>
+      <span class="hint" style="margin:0;">Generate Preview renders the finished video. What you watch above is the file you download — Export uses the same render too.</span>
     </div>
+    <p class="hint" id="previewStaleHint" style="display:none;"></p>
     <div class="progress-wrap" id="previewProgressWrap" style="display:none;">
       <div class="progress-bar" id="previewProgressBar"></div>
     </div>
@@ -3139,6 +3141,12 @@ let sourceLoadCounter = 0;
 let currentObjectURL = null;
 let processedObjectURL = null;
 let downloadObjectURL = null;
+// What the Edited player is currently showing. This is NOT a second cache: it
+// renders nothing and decides nothing, it just records which render is on screen
+// so Download can hand back that exact blob and so we can tell when the settings
+// have moved on from it. `key` is the very same RenderCache key the renderer used.
+let previewRender = null;      // { blob, key, name, frames, duration }
+let previewDownloadURL = null; // object URL over previewRender.blob, made on demand
 let busy = false;
 
 for (const [type, def] of Object.entries(EFFECT_TYPES)) {
@@ -3170,6 +3178,8 @@ function currentHook() {
 }
 
 function updateHookHint() {
+  // The hook feeds the renderer, so any edit to it can date the retained preview.
+  updatePreviewDownloadState();
   const hint = document.getElementById('hookHint');
   const hook = currentHook();
   if (!hook.enabled) {
@@ -3193,6 +3203,10 @@ function setBusy(value) {
   exportBtn.disabled = value || !meta;
   addEffectBtn.disabled = value || !meta;
   fileInput.disabled = value;
+  // Held down while a render runs; the freshness check re-enables it afterwards
+  // if the finished render still matches the settings.
+  if (value) document.getElementById('downloadPreviewBtn').disabled = true;
+  else updatePreviewDownloadState();
   document.querySelectorAll('#effectEditor input, #effectEditor select').forEach((el) => { el.disabled = value; });
   ['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
     document.getElementById(id).disabled = value;
@@ -3459,6 +3473,9 @@ function refreshEffectsUI() {
   renderEffectList();
   renderEffectEditor();
   updateOutputDurationInfo();
+  // Effect edits, additions, removals, reordering and enable/disable all land
+  // here, so this is where the retained preview is re-checked against them.
+  updatePreviewDownloadState();
 }
 
 function updateOutputDurationInfo() {
@@ -3493,8 +3510,10 @@ async function loadFile(file) {
     processedVideo.load();
     document.getElementById('processedHint').textContent = 'Not generated yet. Use "Generate Preview".';
 
-    // A new clip invalidates any held render.
+    // A new clip invalidates any held render, on screen as well as in the cache.
     RenderCache.clear();
+    discardPreviewRender();
+    updatePreviewDownloadState();
     sourceLoadCounter++;
     currentSourceKey = sourceLoadCounter + ':' + file.name + ':' + file.size + ':' + file.lastModified;
 
@@ -3528,7 +3547,10 @@ addEffectBtn.addEventListener('click', () => {
   refreshEffectsUI();
 });
 
-document.getElementById('outputFpsInput').addEventListener('change', updateOutputDurationInfo);
+document.getElementById('outputFpsInput').addEventListener('change', () => {
+  updateOutputDurationInfo();
+  updatePreviewDownloadState();
+});
 
 ['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
   const el = document.getElementById(id);
@@ -3653,19 +3675,123 @@ async function quiesceProcessedPreview() {
   };
 }
 
+/* ---- The rendered result, once, shared by Preview, Download and Export ----
+   Generate Preview runs the pipeline and keeps the WebM blob it produced. The
+   player shows that blob, Download hands back that same blob, and Export reuses
+   it through RenderCache whenever the inputs still match. Nothing here re-renders
+   or re-encodes anything. */
+
+function outputFileName() {
+  const baseName = (meta && meta.name ? meta.name : 'video').replace(/\.[^/.]+$/, '');
+  return baseName + '_effects.webm';
+}
+
+// The RenderCache key for the settings as they stand right now. Comparing it with
+// the key the on-screen preview was rendered under is what tells us whether the
+// preview still represents the current settings.
+function currentRenderKey() {
+  if (!meta) return null;
+  return RenderCache.keyFor(currentSourceKey, EffectStack.snapshot(), currentHook(), currentOutputFps(), meta);
+}
+
+function releasePreviewDownloadURL() {
+  if (previewDownloadURL) { URL.revokeObjectURL(previewDownloadURL); previewDownloadURL = null; }
+}
+
+// Drops the retained render. Called when the settings change under it or a new
+// clip is loaded, so a stale file can never be downloaded as the current output.
+function discardPreviewRender() {
+  releasePreviewDownloadURL();
+  previewRender = null;
+}
+
+// Enables Download only while the on-screen preview is the render of the current
+// settings. Anything that feeds the renderer changing makes the key move, which
+// disables Download and says why, rather than quietly serving the old file.
+function updatePreviewDownloadState() {
+  const btn = document.getElementById('downloadPreviewBtn');
+  const stale = document.getElementById('previewStaleHint');
+  if (!btn) return;
+  if (!previewRender) {
+    btn.disabled = true;
+    stale.style.display = 'none';
+    return;
+  }
+  const fresh = previewRender.key !== null && previewRender.key === currentRenderKey();
+  btn.disabled = !fresh;
+  if (fresh) {
+    stale.style.display = 'none';
+  } else {
+    stale.style.display = '';
+    stale.textContent = 'Settings have changed since this preview was rendered, so it no longer matches. ' +
+      'Generate Preview again to refresh it — the old render is not offered for download.';
+  }
+}
+
+// Hands back the blob Generate Preview produced. No render, no encode: the bytes
+// were produced once and are simply written to disk. One object URL is kept for
+// the life of this preview so repeated downloads do not leak a URL each time.
+function downloadPreviewRender() {
+  if (!previewRender) return;
+  if (previewRender.key !== currentRenderKey()) { updatePreviewDownloadState(); return; }
+  if (!previewDownloadURL) previewDownloadURL = URL.createObjectURL(previewRender.blob);
+  const link = document.createElement('a');
+  link.href = previewDownloadURL;
+  link.download = previewRender.name;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  Log.info('Downloaded the existing preview render (' + formatBytes(previewRender.blob.size) +
+    ') — nothing was rendered again.');
+}
+
+document.getElementById('downloadPreviewBtn').addEventListener('click', downloadPreviewRender);
+
 previewBtn.addEventListener('click', async () => {
   if (busy || !meta) return;
+  // A failed render must never leave the previous file presented as the new one,
+  // so the retained render is dropped before the attempt and only restored by a
+  // result that actually came back.
+  const previousRender = previewRender;
+  discardPreviewRender();
+  updatePreviewDownloadState();
+
   const result = await runRender('preview', 'previewProgressWrap', 'previewProgressBar', 'previewStatus');
-  if (!result) return;
-  if (processedObjectURL) URL.revokeObjectURL(processedObjectURL);
+  if (!result) {
+    // The render did not produce anything. Put back whatever was on screen before;
+    // if the settings have moved on, the freshness check disables Download anyway.
+    previewRender = previousRender;
+    updatePreviewDownloadState();
+    return;
+  }
+
+  // Keep the exact blob the pipeline produced. Preview plays it, Download writes
+  // it out, and Export reuses it from RenderCache under the same key.
+  previewRender = {
+    blob: result.blob,
+    key: currentRenderKey(),
+    name: outputFileName(),
+    frames: result.frames,
+    duration: result.duration,
+  };
+
+  // The old preview URL is only released once the new one is in hand, so the
+  // element is never pointed at a revoked URL.
+  const staleURL = processedObjectURL;
   processedObjectURL = URL.createObjectURL(result.blob);
   processedVideo.src = processedObjectURL;
+  if (staleURL) URL.revokeObjectURL(staleURL);
+
   document.getElementById('processedHint').textContent =
-    'Preview: ' + meta.width + 'x' + meta.height + ', ' + result.duration.toFixed(2) + 's, ' +
-    result.frames + ' frames, ' + formatBytes(result.blob.size) + ' (video only, no audio).';
+    'Rendered: ' + meta.width + 'x' + meta.height + ', ' + result.duration.toFixed(2) + 's, ' +
+    result.frames + ' frames, ' + formatBytes(result.blob.size) + ' (video only, no audio). ' +
+    'This is the finished file — "Download WebM" saves it as it is.';
+  updatePreviewDownloadState();
+
   setStatus('previewStatus', (result.reused
-    ? 'Preview ready — reused the existing render (nothing affecting the frames has changed).'
-    : 'Preview ready in ' + result.elapsed.toFixed(1) + 's.') +
+    ? 'Preview ready — reused the existing render (nothing affecting the frames has changed). This is the finished file: watch it above, then Download WebM.'
+    : 'Preview ready in ' + result.elapsed.toFixed(1) + 's. This is the finished file: watch it above, then Download WebM.') +
     (result.warnings.length ? '\nWarnings:\n  • ' + result.warnings.join('\n  • ') : ''), 'ok');
   Log.info('Preview rendered: ' + result.frames + ' frames, ' + formatBytes(result.blob.size) + ' in ' + result.elapsed.toFixed(1) + 's');
 });
