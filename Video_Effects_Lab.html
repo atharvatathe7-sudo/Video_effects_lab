@@ -597,7 +597,31 @@ const GLITCH_INTENSITY = {
 const GHOST_FADE = { low: 0.22, medium: 0.36, high: 0.50 };            // weight of each successive echo
 const SHARPEN_AMOUNT = { low: 0.25, medium: 0.50, high: 0.90 };
 
+// --- Group 1 effect constants ---
+// Impact Warp: how far the centre is magnified. The inverse map only ever
+// samples INSIDE the source radius, so a bulge can never pull in empty pixels.
+const WARP_AMOUNT = { low: 0.10, medium: 0.20, high: 0.35 };
+const BLOOM_STRENGTH = { low: 0.30, medium: 0.55, high: 0.85 };
+const BLOOM_THRESHOLD = 0.62;          // luma above which a pixel starts to bloom
+const BLOOM_DOWNSCALE = 4;             // bright-pass runs at 1/4 size, then is blurred up
+const FLARE_STRENGTH = { low: 0.30, medium: 0.50, high: 0.75 };
+// Whip Pan travel as a fraction of the panned axis. Kept modest on purpose:
+// translating the frame forces a matching overscan zoom to stay border-safe.
+const WHIP_DISTANCE = { low: 0.08, medium: 0.14, high: 0.22 };
+// Directional blur per unit of pan velocity. A whip pan's signature look IS the
+// smear, so the gain is set to give a clearly visible streak at the fastest point
+// of the sweep (~19px at 720p on `high`), capped so a very short window -- which
+// multiplies velocity -- cannot turn the frame to mush.
+const WHIP_BLUR_GAIN = 0.35;
+const WHIP_BLUR_MAX_FRAC = 0.03;       // hard ceiling as a fraction of the short side
+const CRASH_ZOOM_AMOUNT = { low: 1.25, medium: 1.45, high: 1.80 };
+const CRASH_STREAK_GAIN = 0.020;       // radial streak per unit of zoom velocity
+const LIGHT_WIPE_INTENSITY = { low: 0.35, medium: 0.60, high: 0.90 };
+const STROBE_ALPHA = { low: 0.30, medium: 0.50, high: 0.75 };
+const VELOCITY_DT = 0.005;             // fixed step for deterministic finite differences
+
 const LEVEL_OPTIONS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
+const DIRECTION_OPTIONS = [['left', 'Left'], ['right', 'Right'], ['up', 'Up'], ['down', 'Down']];
 
 /* Deterministic integer hash -> used by Glitch Burst.
    Pure arithmetic on frame index / seed: never Math.random(), never a clock,
@@ -713,6 +737,7 @@ const EFFECT_TYPES = {
   radialBlur: {
     label: 'Radial Zoom Blur',
     defaultDuration: 0.4,
+    focal: true,
     defaults: { amount: 'medium', direction: 'in', focusX: 0.5, focusY: 0.5 },
     params: [
       { key: 'amount', label: 'Amount', options: LEVEL_OPTIONS },
@@ -773,6 +798,87 @@ const EFFECT_TYPES = {
     params: [{ key: 'amount', label: 'Amount', options: LEVEL_OPTIONS }],
     hint: 'A brief clarity lift on the board and pieces, eased in and out so nothing is permanently sharpened. ' +
           'Keep it low — high can ring on compressed footage.',
+  },
+
+  /* ---------------- Group 1 ---------------- */
+  impactWarp: {
+    label: 'Impact Warp',
+    defaultDuration: 0.35,
+    focal: true,
+    defaults: { amount: 'medium', radius: 60, focusX: 0.5, focusY: 0.5 },
+    params: [
+      { key: 'amount', label: 'Amount', options: LEVEL_OPTIONS },
+      { key: 'radius', label: 'Radius (% of frame)', type: 'number', min: 20, max: 100, step: 5 },
+      { key: 'focusX', label: 'Focus X', type: 'number', min: 0, max: 1, step: 0.01 },
+      { key: 'focusY', label: 'Focus Y', type: 'number', min: 0, max: 1, step: 0.01 },
+    ],
+    hint: 'A shock bulges the picture outward from the point you drag below, then settles. ' +
+          'The lens map only ever samples inward, so it cannot pull in empty pixels — put it on the square that got hit.',
+  },
+  glowBloom: {
+    label: 'Glow / Bloom',
+    defaultDuration: 0.8,
+    defaults: { strength: 'medium' },
+    params: [{ key: 'strength', label: 'Strength', options: LEVEL_OPTIONS }],
+    hint: 'Bright areas bleed soft light. Only pixels above a fixed luminance threshold bloom, so the board keeps its ' +
+          'contrast instead of washing out. Runs before Flash so a flash never blooms into a white-out.',
+  },
+  lensFlare: {
+    label: 'Lens Flare',
+    defaultDuration: 0.5,
+    focal: true,
+    defaults: { strength: 'medium', focusX: 0.5, focusY: 0.35 },
+    params: [
+      { key: 'strength', label: 'Strength', options: LEVEL_OPTIONS },
+      { key: 'focusX', label: 'Focus X', type: 'number', min: 0, max: 1, step: 0.01 },
+      { key: 'focusY', label: 'Focus Y', type: 'number', min: 0, max: 1, step: 0.01 },
+    ],
+    hint: 'A restrained burst — core, streak and a few ghosts along the axis through centre. Drawn procedurally, ' +
+          'no stock artwork and nothing random. Drag the source below.',
+  },
+  whipPan: {
+    label: 'Whip Pan',
+    defaultDuration: 0.3,
+    defaults: { direction: 'left', distance: 'medium' },
+    params: [
+      { key: 'direction', label: 'Direction', options: DIRECTION_OPTIONS },
+      { key: 'distance', label: 'Distance', options: LEVEL_OPTIONS },
+    ],
+    hint: 'One decisive sweep out and back, with directional blur driven by the pan velocity rather than a fixed amount. ' +
+          'Translating the frame forces a matching overscan zoom to keep the edges covered, so bigger distances zoom in more.',
+  },
+  crashZoom: {
+    label: 'Crash Zoom',
+    defaultDuration: 0.5,
+    defaults: { amount: 'medium', mode: 'recover' },
+    params: [
+      { key: 'amount', label: 'Amount', options: [['low', 'Low (1.25x)'], ['medium', 'Medium (1.45x)'], ['high', 'High (1.80x)']] },
+      { key: 'mode', label: 'Mode', options: [['recover', 'Crash and recover'], ['hold', 'Crash and hold']] },
+    ],
+    hint: 'A violent arrival, not an emphasis beat: it slams in several times harder than Punch Zoom over a much shorter ' +
+          'attack and streaks radially while it travels. Use it to land on a moment or cut between two.',
+  },
+  lightWipe: {
+    label: 'Light Wipe',
+    defaultDuration: 0.6,
+    defaults: { direction: 'left', intensity: 'medium' },
+    params: [
+      { key: 'direction', label: 'Direction', options: DIRECTION_OPTIONS },
+      { key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS },
+    ],
+    hint: 'A band of light sweeps across and reveals the frame again. Additive, so it lifts the picture rather than ' +
+          'replacing its colour, and it leaves nothing behind once it has passed.',
+  },
+  strobe: {
+    label: 'Strobe / Multi-Flash',
+    defaultDuration: 0.5,
+    defaults: { pulses: '3', intensity: 'medium' },
+    params: [
+      { key: 'pulses', label: 'Pulses', options: [['2', '2'], ['3', '3'], ['4', '4'], ['5', '5']] },
+      { key: 'intensity', label: 'Intensity', options: LEVEL_OPTIONS },
+    ],
+    hint: 'Evenly spaced hits with real darkness between them — where Flash is one beat, this is a rhythm. ' +
+          'Pulse timing is fixed by the window, so it never changes the clip length.',
   },
 };
 
@@ -1010,6 +1116,138 @@ const EffectMath = {
     return echoes * spacing + 1;
   },
 
+  /* ---------------- Group 1 evaluators ---------------- */
+
+  // Shared impact shape: fast rise to a peak, slower settle. Zero at both edges.
+  _impactCurve(u, attack) {
+    const a = attack === undefined ? 0.25 : attack;
+    return u < a ? M.smoothstep(u / a) : 1 - M.smoothstep((u - a) / (1 - a));
+  },
+
+  // Deterministic central difference of a pure function of time.
+  _velocity(fn, t) {
+    return (fn(t + VELOCITY_DT) - fn(t - VELOCITY_DT)) / (2 * VELOCITY_DT);
+  },
+
+  // --- Impact Warp: radial bulge strength at this instant ---
+  impactWarp(t, params, width, height) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return null;
+    const amount = (WARP_AMOUNT[params.amount] || WARP_AMOUNT.medium) * this._impactCurve(u, 0.22);
+    if (!(amount > 1e-4)) return null;
+    const pct = Number(params.radius);
+    const radiusPx = (isFinite(pct) ? M.clamp(pct, 20, 100) : 60) / 100 * Math.min(width, height);
+    return {
+      amount,
+      radiusPx: Math.max(8, radiusPx),
+      cx: M.clamp(Number(params.focusX), 0, 1) * width,
+      cy: M.clamp(Number(params.focusY), 0, 1) * height,
+    };
+  },
+
+  // --- Glow / Bloom: enveloped bloom strength ---
+  glowBloom(t, params) {
+    const env = M.envelope(t, params.start, params.duration, 0.18);
+    if (env <= 0) return null;
+    const strength = (BLOOM_STRENGTH[params.strength] || BLOOM_STRENGTH.medium) * env;
+    return strength > 1e-4 ? { strength } : null;
+  },
+
+  // --- Lens Flare: short burst, positioned in normalised coordinates ---
+  lensFlare(t, params, width, height) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return null;
+    const strength = (FLARE_STRENGTH[params.strength] || FLARE_STRENGTH.medium) * this._impactCurve(u, 0.3);
+    if (!(strength > 1e-4)) return null;
+    return {
+      strength,
+      x: M.clamp(Number(params.focusX), 0, 1) * width,
+      y: M.clamp(Number(params.focusY), 0, 1) * height,
+    };
+  },
+
+  // --- Whip Pan: one decisive sweep out and back ---
+  // Offset is a pure function of t, so its velocity (used to drive the
+  // directional blur) is just a deterministic finite difference of it.
+  whipPanOffset(t, params, width, height) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return { x: 0, y: 0 };
+    const dist = (WHIP_DISTANCE[params.distance] || WHIP_DISTANCE.medium);
+    const horizontal = params.direction === 'left' || params.direction === 'right';
+    const span = (horizontal ? width : height) * dist;
+    // Eased sine: leaves and returns to exactly zero, fastest through the middle.
+    const travel = span * Math.sin(Math.PI * M.smootherstep(u));
+    const sign = (params.direction === 'left' || params.direction === 'up') ? -1 : 1;
+    return horizontal ? { x: sign * travel, y: 0 } : { x: 0, y: sign * travel };
+  },
+
+  whipPan(t, params, width, height) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return null;
+    const offset = this.whipPanOffset(t, params, width, height);
+    const horizontal = params.direction === 'left' || params.direction === 'right';
+    const axis = (tt) => {
+      const o = this.whipPanOffset(tt, params, width, height);
+      return horizontal ? o.x : o.y;
+    };
+    const velocity = this._velocity(axis, t);          // pixels per second
+    const blurPx = Math.min(Math.abs(velocity) * WHIP_BLUR_GAIN * (1 / 60),
+      WHIP_BLUR_MAX_FRAC * Math.min(width, height));
+    return { offset, blurPx, angle: horizontal ? 0 : Math.PI / 2 };
+  },
+
+  // --- Crash Zoom: violent arrival, distinct from Punch Zoom ---
+  // Much larger amount, a far shorter attack, an optional hold, and a radial
+  // streak driven by how fast the zoom is actually travelling.
+  crashZoomScale(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return 1;
+    const amount = CRASH_ZOOM_AMOUNT[params.amount] || CRASH_ZOOM_AMOUNT.medium;
+    const ATTACK = 0.12;
+    const RELEASE = params.mode === 'hold' ? 0.18 : 0.62;
+    let curve;
+    if (u < ATTACK) curve = M.smootherstep(u / ATTACK);
+    else if (u < 1 - RELEASE) curve = 1;
+    else curve = 1 - M.smoothstep((u - (1 - RELEASE)) / RELEASE);
+    return 1 + (amount - 1) * curve;
+  },
+
+  crashZoom(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return null;
+    const scale = this.crashZoomScale(t, params);
+    const velocity = this._velocity((tt) => this.crashZoomScale(tt, params), t);
+    return { scale, streak: Math.min(0.12, Math.abs(velocity) * CRASH_STREAK_GAIN) };
+  },
+
+  // --- Light Wipe: a band of light travelling across the frame ---
+  lightWipe(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return null;
+    const peak = LIGHT_WIPE_INTENSITY[params.intensity] || LIGHT_WIPE_INTENSITY.medium;
+    // Full strength across the middle of the sweep, easing in and out at the edges.
+    const envelope = Math.min(1, M.smoothstep(u / 0.15), M.smoothstep((1 - u) / 0.15));
+    const intensity = peak * envelope;
+    if (!(intensity > 1e-4)) return null;
+    // The band travels a little past both edges so it enters and leaves cleanly.
+    return { position: -0.25 + u * 1.5, intensity, direction: params.direction || 'left' };
+  },
+
+  // --- Strobe: evenly spaced pulses with real gaps between them ---
+  strobe(t, params) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return 0;
+    const pulses = M.clamp(Math.round(Number(params.pulses) || 3), 1, 5);
+    const peak = STROBE_ALPHA[params.intensity] || STROBE_ALPHA.medium;
+    const slot = u * pulses;
+    const withinSlot = slot - Math.floor(slot);
+    // Each pulse lights the first 45% of its slot; the rest is deliberate darkness.
+    const DUTY = 0.45;
+    if (withinSlot >= DUTY) return 0;
+    const p = withinSlot / DUTY;
+    return peak * (p < 0.3 ? M.smoothstep(p / 0.3) : 1 - M.smoothstep((p - 0.3) / 0.7));
+  },
+
   // --- Sharpen punch: enveloped unsharp amount ---
   sharpen(t, params) {
     const env = M.envelope(t, params.start, params.duration, 0.15);
@@ -1038,6 +1276,8 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
   let chromaDx = 0, chromaDy = 0, chromaActive = false;
   let radial = null, directional = null, glitch = null;
   let sharpenAmount = 0;
+  // Group 1 accumulators
+  let warp = null, bloom = null, flare = null, lightWipe = null;
   const fi = frameIndex || 0;
 
   for (const fx of effects) {
@@ -1109,6 +1349,61 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
       case 'sharpenPunch':
         sharpenAmount += EffectMath.sharpen(sourceTime, p);
         break;
+
+      /* ---------------- Group 1 ---------------- */
+      case 'impactWarp': {
+        const wv = EffectMath.impactWarp(sourceTime, p, width, height);
+        // One warp pass keeps the cost bounded; the strongest bulge wins.
+        if (wv && (!warp || wv.amount > warp.amount)) warp = wv;
+        break;
+      }
+      case 'glowBloom': {
+        const b = EffectMath.glowBloom(sourceTime, p);
+        if (b) bloom = { strength: Math.max(bloom ? bloom.strength : 0, b.strength) };
+        break;
+      }
+      case 'lensFlare': {
+        const f = EffectMath.lensFlare(sourceTime, p, width, height);
+        if (f && (!flare || f.strength > flare.strength)) flare = f;
+        break;
+      }
+      case 'whipPan': {
+        const wp = EffectMath.whipPan(sourceTime, p, width, height);
+        if (wp) {
+          // Feeds the SAME translation the overscan bound is computed from, so
+          // a pan can never open a border.
+          dx += wp.offset.x;
+          dy += wp.offset.y;
+          if (wp.blurPx > 0.5) {
+            const d = buildDirectionalBlur(wp.blurPx, wp.angle);
+            if (!directional || d.pad > directional.pad) directional = d;
+          }
+        }
+        break;
+      }
+      case 'crashZoom': {
+        const cz = EffectMath.crashZoom(sourceTime, p);
+        if (cz) {
+          zoomScale *= cz.scale;
+          if (cz.streak > 0.001) {
+            const r = buildRadialStreak(cz.streak);
+            if (!radial || r.scales[r.scales.length - 1] > radial.scales[radial.scales.length - 1]) radial = r;
+          }
+        }
+        break;
+      }
+      case 'lightWipe': {
+        const lw = EffectMath.lightWipe(sourceTime, p);
+        if (lw && (!lightWipe || lw.intensity > lightWipe.intensity)) lightWipe = lw;
+        break;
+      }
+      case 'strobe': {
+        // Strobe is flash light, so it screen-combines through the existing
+        // accumulator rather than adding another overlay pass.
+        const a = EffectMath.strobe(sourceTime, p);
+        if (a > 0) flashAlpha = 1 - (1 - flashAlpha) * (1 - a);
+        break;
+      }
     }
   }
 
@@ -1136,7 +1431,36 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
     scale, dx, dy, rot, flashAlpha, vignetteAlpha, blurWeights, geometric,
     temporalTaps, chroma, radial, directional, glitch,
     sharpenAmount: Math.min(sharpenAmount, 1.5),
+    warp, bloom, flare, lightWipe,
   };
+}
+
+// Radial/directional blur descriptors in the shape the existing stages expect,
+// so Crash Zoom and Whip Pan reuse those passes instead of adding new ones.
+function buildRadialStreak(amount) {
+  const taps = 7;
+  const scales = [], weights = [];
+  for (let k = 0; k < taps; k++) {
+    const f = k / (taps - 1);
+    scales.push(1 + amount * f);
+    weights.push(1 - f + 0.15);
+  }
+  return { fx: 0.5, fy: 0.5, scales, weights };
+}
+
+// Used only by Whip Pan (the standalone Directional Blur effect builds its own
+// taps). The tap count scales with the radius -- a fixed 5 taps over a 17px
+// half-length leaves ~8px between samples, which reads as discrete ghost copies
+// on a hard edge rather than as a smear.
+function buildDirectionalBlur(halfPx, angle) {
+  const taps = Math.min(15, Math.max(5, 1 + 2 * Math.ceil(halfPx / 2.5)));
+  const offsets = [], weights = [];
+  for (let k = 0; k < taps; k++) {
+    const f = (k / (taps - 1)) * 2 - 1;
+    offsets.push({ x: Math.cos(angle) * halfPx * f, y: Math.sin(angle) * halfPx * f });
+    weights.push(1);
+  }
+  return { offsets, weights, pad: halfPx };
 }
 
 // Combines two temporal tap lists (index into frame history -> weight),
@@ -1723,6 +2047,12 @@ class FrameRenderer {
       ctx = this.blendCtx;
     }
 
+    // --- impact warp: a lens distortion, so it runs before the lens blurs.
+    // Placed after the temporal blend on purpose: the frame history keeps
+    // storing pristine geometry frames, so Motion Blur and Ghost Trail are
+    // untouched by this addition. ---
+    if (state.warp) { canvas = this._warp(canvas, state.warp); ctx = this._stage('warp').ctx; }
+
     // --- spatial blurs: radial (lens/zoom) then directional ---
     if (state.radial) { canvas = this._radial(canvas, state.radial); ctx = this._stage('radial').ctx; }
     if (state.directional) { canvas = this._directional(canvas, state.directional); ctx = this._stage('directional').ctx; }
@@ -1731,6 +2061,11 @@ class FrameRenderer {
     if (state.glitch) { canvas = this._glitch(canvas, state.glitch); ctx = this._stage('glitch').ctx; }
     if (state.chroma) { canvas = this._chroma(canvas, state.chroma); ctx = this._stage('chroma').ctx; }
 
+    // --- light: bloom the real image, then the flare sits on top of it.
+    // Both run BEFORE flash so a white overlay never gets bloomed. ---
+    if (state.bloom) this._bloom(canvas, ctx, state.bloom);
+    if (state.flare) this._flare(ctx, state.flare);
+
     // --- screen-space overlays ---
     if (state.flashAlpha > 0) {
       ctx.globalAlpha = M.clamp(state.flashAlpha, 0, 1);
@@ -1738,6 +2073,9 @@ class FrameRenderer {
       ctx.fillRect(0, 0, W, H);
       ctx.globalAlpha = 1;
     }
+    // Light wipe travels over the finished frame but under the vignette, so the
+    // edges still darken consistently as it passes.
+    if (state.lightWipe) this._lightWipe(ctx, state.lightWipe);
     if (state.vignetteAlpha > 0) {
       ctx.globalAlpha = M.clamp(state.vignetteAlpha, 0, 1);
       ctx.fillStyle = this._gradient(ctx);
@@ -1929,6 +2267,200 @@ class FrameRenderer {
     }
     out.ctx.globalCompositeOperation = 'source-over';
     return out.canvas;
+  }
+
+  /* ---------------- Group 1 stages ---------------- */
+
+  // Impact Warp: per-pixel inverse radial map with bilinear sampling.
+  // For a destination pixel at radius r the source radius is r*f with f <= 1,
+  // so every sample comes from INSIDE the frame -- a bulge physically cannot
+  // pull in empty pixels. Coordinates are clamped as a second guarantee.
+  _warp(src, w) {
+    const W = this.width, H = this.height;
+    const out = this._stage('warp');
+    const octx = out.ctx;
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.globalAlpha = 1;
+    octx.globalCompositeOperation = 'source-over';
+    octx.drawImage(src, 0, 0);
+
+    // Only the disc is touched; everything outside it is already correct.
+    const r = w.radiusPx;
+    const x0 = Math.max(0, Math.floor(w.cx - r));
+    const x1 = Math.min(W, Math.ceil(w.cx + r));
+    const y0 = Math.max(0, Math.floor(w.cy - r));
+    const y1 = Math.min(H, Math.ceil(w.cy + r));
+    if (x1 <= x0 || y1 <= y0) return out.canvas;
+
+    const region = octx.getImageData(x0, y0, x1 - x0, y1 - y0);
+    const dst = region.data;
+    const rw = x1 - x0, rh = y1 - y0;
+    if (!this.warpSrcBuf || this.warpSrcBuf.length !== dst.length) {
+      this.warpSrcBuf = new Uint8ClampedArray(dst.length);
+    }
+    const buf = this.warpSrcBuf;
+    buf.set(dst);
+
+    const invR = 1 / r;
+    for (let y = 0; y < rh; y++) {
+      const py = y0 + y;
+      const dy = py - w.cy;
+      for (let x = 0; x < rw; x++) {
+        const px = x0 + x;
+        const dxp = px - w.cx;
+        const dist = Math.sqrt(dxp * dxp + dy * dy) * invR;
+        if (dist >= 1) continue;
+        const falloff = (1 - dist * dist);
+        const f = 1 - w.amount * falloff * falloff;
+        // Source position, always at or inside the destination radius.
+        let sx = w.cx + dxp * f - x0;
+        let sy = w.cy + dy * f - y0;
+        sx = sx < 0 ? 0 : (sx > rw - 1 ? rw - 1 : sx);
+        sy = sy < 0 ? 0 : (sy > rh - 1 ? rh - 1 : sy);
+        const ix = Math.floor(sx), iy = Math.floor(sy);
+        const fx = sx - ix, fy = sy - iy;
+        const ix1 = ix + 1 < rw ? ix + 1 : ix;
+        const iy1 = iy + 1 < rh ? iy + 1 : iy;
+        const i00 = (iy * rw + ix) * 4, i10 = (iy * rw + ix1) * 4;
+        const i01 = (iy1 * rw + ix) * 4, i11 = (iy1 * rw + ix1) * 4;
+        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
+        const w01 = (1 - fx) * fy, w11 = fx * fy;
+        const o = (y * rw + x) * 4;
+        for (let c = 0; c < 3; c++) {
+          dst[o + c] = buf[i00 + c] * w00 + buf[i10 + c] * w10 + buf[i01 + c] * w01 + buf[i11 + c] * w11;
+        }
+      }
+    }
+    octx.putImageData(region, x0, y0);
+    return out.canvas;
+  }
+
+  // Glow / Bloom: bright-pass at 1/4 size, pyramid-blurred with plain
+  // drawImage scaling (deterministic bilinear), then added back.
+  _bloom(src, ctx, bloom) {
+    const W = this.width, H = this.height;
+    const bw = Math.max(2, Math.round(W / BLOOM_DOWNSCALE));
+    const bh = Math.max(2, Math.round(H / BLOOM_DOWNSCALE));
+    const small = this._stage('bloomSmall');
+    const blur = this._stage('bloomBlur');
+    if (small.canvas.width !== bw || small.canvas.height !== bh) {
+      small.canvas.width = bw; small.canvas.height = bh;
+      blur.canvas.width = bw; blur.canvas.height = bh;
+    }
+    const sctx = small.ctx;
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    sctx.globalAlpha = 1;
+    sctx.globalCompositeOperation = 'source-over';
+    sctx.drawImage(src, 0, 0, W, H, 0, 0, bw, bh);
+
+    // Keep only what is brighter than the threshold, scaled back up to full range.
+    const img = sctx.getImageData(0, 0, bw, bh);
+    const d = img.data;
+    const thr = BLOOM_THRESHOLD * 255;
+    const gain = 255 / (255 - thr);
+    for (let i = 0; i < d.length; i += 4) {
+      const luma = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+      if (luma <= thr) { d[i] = 0; d[i + 1] = 0; d[i + 2] = 0; continue; }
+      const k = ((luma - thr) * gain) / luma;
+      d[i] = d[i] * k; d[i + 1] = d[i + 1] * k; d[i + 2] = d[i + 2] * k;
+    }
+    sctx.putImageData(img, 0, 0);
+
+    // Two down/up passes spread the light smoothly without a convolution.
+    const bctx = blur.ctx;
+    bctx.setTransform(1, 0, 0, 1, 0, 0);
+    bctx.globalAlpha = 1;
+    bctx.globalCompositeOperation = 'source-over';
+    const qw = Math.max(1, Math.round(bw / 4)), qh = Math.max(1, Math.round(bh / 4));
+    bctx.drawImage(small.canvas, 0, 0, bw, bh, 0, 0, qw, qh);
+    sctx.drawImage(blur.canvas, 0, 0, qw, qh, 0, 0, bw, bh);
+    bctx.drawImage(small.canvas, 0, 0, bw, bh, 0, 0, qw, qh);
+    sctx.drawImage(blur.canvas, 0, 0, qw, qh, 0, 0, bw, bh);
+
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = M.clamp(bloom.strength, 0, 1);
+    ctx.drawImage(small.canvas, 0, 0, bw, bh, 0, 0, W, H);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  // Lens Flare: procedural core, streak and ghosts. No artwork, no randomness.
+  _flare(ctx, flare) {
+    const W = this.width, H = this.height;
+    const short = Math.min(W, H);
+    const a = M.clamp(flare.strength, 0, 1);
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Core
+    const coreR = short * 0.22;
+    const core = ctx.createRadialGradient(flare.x, flare.y, 0, flare.x, flare.y, coreR);
+    core.addColorStop(0, 'rgba(255,252,235,' + (0.95 * a).toFixed(4) + ')');
+    core.addColorStop(0.25, 'rgba(255,238,200,' + (0.35 * a).toFixed(4) + ')');
+    core.addColorStop(1, 'rgba(255,230,180,0)');
+    ctx.fillStyle = core;
+    ctx.fillRect(flare.x - coreR, flare.y - coreR, coreR * 2, coreR * 2);
+
+    // Horizontal streak
+    const streakW = W * 0.9, streakH = Math.max(2, short * 0.012);
+    const streak = ctx.createLinearGradient(flare.x - streakW / 2, 0, flare.x + streakW / 2, 0);
+    streak.addColorStop(0, 'rgba(255,240,210,0)');
+    streak.addColorStop(0.5, 'rgba(255,248,225,' + (0.55 * a).toFixed(4) + ')');
+    streak.addColorStop(1, 'rgba(255,240,210,0)');
+    ctx.fillStyle = streak;
+    ctx.fillRect(flare.x - streakW / 2, flare.y - streakH / 2, streakW, streakH);
+
+    // Ghosts along the axis through the frame centre
+    const vx = W / 2 - flare.x, vy = H / 2 - flare.y;
+    const ghosts = [[0.4, 0.30, 'rgba(180,220,255,'], [0.75, 0.22, 'rgba(255,200,180,'], [1.18, 0.34, 'rgba(200,255,220,']];
+    for (const [pos, size, colour] of ghosts) {
+      const gx = flare.x + vx * 2 * pos, gy = flare.y + vy * 2 * pos;
+      const gr = short * size * 0.16;
+      const g = ctx.createRadialGradient(gx, gy, 0, gx, gy, gr);
+      g.addColorStop(0, colour + (0.30 * a).toFixed(4) + ')');
+      g.addColorStop(0.7, colour + (0.10 * a).toFixed(4) + ')');
+      g.addColorStop(1, colour + '0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(gx - gr, gy - gr, gr * 2, gr * 2);
+    }
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
+  }
+
+  // Light Wipe: an additive band of light travelling across the frame.
+  _lightWipe(ctx, wipe) {
+    const W = this.width, H = this.height;
+    const horizontal = wipe.direction === 'left' || wipe.direction === 'right';
+    const span = horizontal ? W : H;
+    // `position` runs from before one edge to past the other.
+    const forward = wipe.direction === 'right' || wipe.direction === 'down';
+    const p = forward ? wipe.position : 1 - wipe.position;
+    const centre = p * span;
+    const band = span * 0.45;
+    const x0 = horizontal ? centre - band : 0;
+    const y0 = horizontal ? 0 : centre - band;
+    const x1 = horizontal ? centre + band : 0;
+    const y1 = horizontal ? 0 : centre + band;
+    const a = M.clamp(wipe.intensity, 0, 1);
+
+    const grad = ctx.createLinearGradient(x0, y0, x1, y1);
+    grad.addColorStop(0.00, 'rgba(255,250,235,0)');
+    grad.addColorStop(0.35, 'rgba(255,248,230,' + (0.45 * a).toFixed(4) + ')');
+    grad.addColorStop(0.50, 'rgba(255,255,248,' + a.toFixed(4) + ')');
+    grad.addColorStop(0.65, 'rgba(255,248,230,' + (0.45 * a).toFixed(4) + ')');
+    grad.addColorStop(1.00, 'rgba(255,250,235,0)');
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, W, H);
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalAlpha = 1;
   }
 
   // Pixel pass: unsharp-mask sharpen. Pure integer arithmetic on the pixel
@@ -2260,8 +2792,8 @@ function renderEffectEditor() {
   hint.textContent = EFFECT_TYPES[fx.type].hint;
   host.appendChild(hint);
 
-  // Radial Zoom Blur gets a direct-manipulation focal point on a still preview.
-  if (fx.type === 'radialBlur') host.appendChild(buildFocalPointControl(fx));
+  // Any effect declaring `focal: true` gets the direct-manipulation picker.
+  if (EFFECT_TYPES[fx.type].focal) host.appendChild(buildFocalPointControl(fx));
 }
 
 /* ---- Radial Zoom Blur focal-point picker ----
@@ -2609,6 +3141,7 @@ window.VEL = {
   EFFECT_TYPES, EffectMath, M, TimeMap, EffectStack,
   computeFrameState, validateRender, renderPipeline, FrameRenderer,
   coverScaleFor, hash3, mergeTemporalTaps, seekVideoTo,
+  buildRadialStreak, buildDirectionalBlur,
   computeHookState, fitHookFontPx, HOOK_DEFAULTS,
   HOOK_START, HOOK_VERTICAL, HOOK_SAFE_WIDTH, HOOK_POP_SECONDS, HOOK_POP_SCALE,
   getHook: currentHook,
