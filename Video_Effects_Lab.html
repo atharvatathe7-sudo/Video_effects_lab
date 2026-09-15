@@ -620,6 +620,39 @@ const LIGHT_WIPE_INTENSITY = { low: 0.35, medium: 0.60, high: 0.90 };
 const STROBE_ALPHA = { low: 0.30, medium: 0.50, high: 0.75 };
 const VELOCITY_DT = 0.005;             // fixed step for deterministic finite differences
 
+/* ---------------- Group 2 constants ---------------- */
+// Wave amplitude as a fraction of the SHORT side, so one setting looks the same
+// at 16:9, 9:16 and 1:1. The renderer tapers this to zero at the frame edge, so
+// the wave can never sample past the border (proof in _displace).
+const WAVE_AMPLITUDE = { low: 0.006, medium: 0.013, high: 0.022 };
+const WAVE_SPEED = { low: 0.7, medium: 1.5, high: 2.8 };   // wave cycles per second
+// Fisheye curvature. f(rn) = tan(rn*atan(K)) / (K*rn) is <= 1 for every rn in
+// [0,1] and exactly 1 at rn = 1, so the corner maps to itself: the centre is
+// magnified, nothing is cropped and no sample ever leaves the frame.
+const FISHEYE_K = { low: 0.60, medium: 1.10, high: 1.80 };
+const FISHEYE_LUT_N = 1024;            // radial profile samples, rebuilt only when K changes
+// Depth of field blur radius as a fraction of the short side, turned into a
+// downscale divisor for the reuse of the bloom pyramid technique.
+const DOF_BLUR = { low: 0.008, medium: 0.017, high: 0.032 };
+const DOF_DIV_MAX = 24;
+// The focus region is fully sharp out to the chosen radius and reaches full blur
+// at DOF_FALLOFF times it, along a smoothstep so the change per unit of radius
+// eases in and out instead of arriving as a visible ring.
+const DOF_FALLOFF = 2.2;
+const DOF_FALLOFF_STOPS = 8;
+
+// Shared sine table for the per-pixel wave field. Math.sin() three times per
+// pixel dominates the cost of a full-frame displacement; the table is a pure
+// function of its index, so the output stays bit-for-bit deterministic.
+const SIN_LUT_SIZE = 4096;
+const SIN_LUT_MASK = SIN_LUT_SIZE - 1;
+const SIN_LUT_SCALE = SIN_LUT_SIZE / (Math.PI * 2);
+const SIN_LUT = (() => {
+  const t = new Float64Array(SIN_LUT_SIZE);
+  for (let i = 0; i < SIN_LUT_SIZE; i++) t[i] = Math.sin((i / SIN_LUT_SIZE) * Math.PI * 2);
+  return t;
+})();
+
 const LEVEL_OPTIONS = [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']];
 const DIRECTION_OPTIONS = [['left', 'Left'], ['right', 'Right'], ['up', 'Up'], ['down', 'Down']];
 
@@ -879,6 +912,73 @@ const EFFECT_TYPES = {
     ],
     hint: 'Evenly spaced hits with real darkness between them — where Flash is one beat, this is a rhythm. ' +
           'Pulse timing is fixed by the window, so it never changes the clip length.',
+  },
+
+  /* ---------------- Group 2 ---------------- */
+  waveWarp: {
+    label: 'Displacement / Wave Warp',
+    defaultDuration: 0.8,
+    defaults: { amount: 'medium', waves: 3, angle: 0, speed: 'medium' },
+    params: [
+      { key: 'amount', label: 'Amount', options: LEVEL_OPTIONS },
+      { key: 'waves', label: 'Waves across frame', type: 'number', min: 1, max: 8, step: 1 },
+      { key: 'angle', label: 'Angle (°)', type: 'number', min: 0, max: 360, step: 15 },
+      { key: 'speed', label: 'Speed', options: LEVEL_OPTIONS },
+    ],
+    hint: 'A travelling wave field ripples the picture — heat haze, a pressure wave off a slammed piece, water. ' +
+          'Not a lens bulge: the displacement runs across the frame along the angle you set, and it tapers to zero ' +
+          'at the edges so no border can ever open. Wavelength is measured on the short side, so it looks the same ' +
+          'in landscape and portrait.',
+  },
+  fisheye: {
+    label: 'Fisheye / Barrel Distortion',
+    defaultDuration: 1.0,
+    defaults: { strength: 'medium' },
+    params: [{ key: 'strength', label: 'Strength', options: LEVEL_OPTIONS }],
+    hint: 'Global lens curvature: straight board edges bow outward and the centre swells, held across the whole ' +
+          'window rather than punched at one point like Impact Warp. The corner maps exactly to itself, so the ' +
+          'frame is never cropped and no corner can go black.',
+  },
+  posterizeStep: {
+    label: 'Posterize / Temporal Step',
+    defaultDuration: 0.8,
+    defaults: { rate: '6' },
+    params: [
+      { key: 'rate', label: 'Stepped frames / s', options: [['2', '2'], ['3', '3'], ['4', '4'], ['6', '6'], ['8', '8'], ['12', '12']] },
+    ],
+    hint: 'Stop-motion cadence: the picture holds on one source frame, then jumps to the next, instead of moving ' +
+          'smoothly. Clip length is unchanged — this is stepped time, not slow motion. Because the held frame is ' +
+          'chosen before anything is drawn, every other effect steps with it, exactly as it would across a Freeze.',
+  },
+  focusBlur: {
+    label: 'Depth of Field / Focus Blur',
+    defaultDuration: 1.0,
+    focal: true,
+    defaults: { blur: 'medium', radius: 35, focusX: 0.5, focusY: 0.5 },
+    params: [
+      { key: 'blur', label: 'Blur', options: LEVEL_OPTIONS },
+      { key: 'radius', label: 'In-focus radius (% of frame)', type: 'number', min: 10, max: 80, step: 5 },
+      { key: 'focusX', label: 'Focus X', type: 'number', min: 0, max: 1, step: 0.01 },
+      { key: 'focusY', label: 'Focus Y', type: 'number', min: 0, max: 1, step: 0.01 },
+    ],
+    hint: 'Holds one part of the board sharp and lets the rest fall away, like opening the aperture. Drag the ' +
+          'focus point below onto the piece that matters. The falloff is a smooth gradient, not a cut-out circle.',
+  },
+  focusPull: {
+    label: 'Focus Pull',
+    defaultDuration: 1.2,
+    defaults: { blur: 'medium', radius: 30, fromX: 0.28, fromY: 0.5, toX: 0.72, toY: 0.5 },
+    params: [
+      { key: 'blur', label: 'Blur', options: LEVEL_OPTIONS },
+      { key: 'radius', label: 'In-focus radius (% of frame)', type: 'number', min: 10, max: 80, step: 5 },
+      { key: 'fromX', label: 'From X', type: 'number', min: 0, max: 1, step: 0.01 },
+      { key: 'fromY', label: 'From Y', type: 'number', min: 0, max: 1, step: 0.01 },
+      { key: 'toX', label: 'To X', type: 'number', min: 0, max: 1, step: 0.01 },
+      { key: 'toY', label: 'To Y', type: 'number', min: 0, max: 1, step: 0.01 },
+    ],
+    hint: 'The sharp region travels from one point to another while the window runs — rack focus from the piece ' +
+          'being moved to the king. Nothing pans or zooms; only what is in focus changes. Uses the same lens as ' +
+          'Depth of Field, so stacking both just takes the stronger blur.',
   },
 };
 
@@ -1255,6 +1355,87 @@ const EffectMath = {
     return (SHARPEN_AMOUNT[params.amount] || SHARPEN_AMOUNT.medium) * env;
   },
 
+  /* ---------------- Group 2 ---------------- */
+
+  // --- Displacement / Wave Warp: a travelling transverse wave field ---
+  // Deliberately NOT radial: the pattern runs across the frame along `angle`,
+  // where Impact Warp bulges outward from a point. Wavelength is measured on the
+  // short side so the same numbers look identical in landscape, portrait and 1:1.
+  waveWarp(t, params, width, height) {
+    const env = M.envelope(t, params.start, params.duration, 0.18);
+    if (env <= 0) return null;
+    const short = Math.min(width, height);
+    const amp = (WAVE_AMPLITUDE[params.amount] || WAVE_AMPLITUDE.medium) * short * env;
+    if (!(amp > 0.15)) return null;
+    const waves = M.clamp(Number(params.waves) || 3, 1, 8);
+    const k1 = (Math.PI * 2 * waves) / short;   // radians per pixel along travel
+    const k2 = k1 * 1.63;                       // cross ripple, deliberately not harmonic
+    const speed = WAVE_SPEED[params.speed] || WAVE_SPEED.medium;
+    // Phase advances with the source timestamp, so it is a pure function of the
+    // frame being rendered -- never a wall clock.
+    const phase = Math.PI * 2 * (t - params.start) * speed;
+    return { amp, k1, k2, phase, angle: (Number(params.angle) || 0) * Math.PI / 180 };
+  },
+
+  // --- Fisheye / Barrel Distortion: sustained global lens curvature ---
+  fisheye(t, params) {
+    const env = M.envelope(t, params.start, params.duration, 0.22);
+    if (env <= 0) return null;
+    const k = (FISHEYE_K[params.strength] || FISHEYE_K.medium) * env;
+    if (!(k > 0.01)) return null;
+    return { k };
+  },
+
+  // --- Posterize / Temporal Step: how long one source frame is held ---
+  // Returns the hold in SOURCE seconds; computeSourceTime turns that into the
+  // quantised timestamp actually fetched from the video.
+  temporalStep(t, params) {
+    if (t <= params.start || t >= params.start + params.duration) return null;
+    const rate = M.clamp(Number(params.rate) || 6, 1, 60);
+    return { hold: 1 / rate, anchor: params.start };
+  },
+
+  // --- Depth of Field / Focus Blur: a static focus region ---
+  // `div` is the downscale divisor the renderer blurs with, so blur strength and
+  // frame size stay tied together the way an aperture and a sensor do.
+  focusBlur(t, params, width, height) {
+    const env = M.envelope(t, params.start, params.duration, 0.2);
+    if (env <= 0) return null;
+    const short = Math.min(width, height);
+    const div = 1 + (DOF_BLUR[params.blur] || DOF_BLUR.medium) * short * env;
+    if (div < 1.6) return null;
+    return {
+      cx: M.clamp(Number(params.focusX), 0, 1) * width,
+      cy: M.clamp(Number(params.focusY), 0, 1) * height,
+      radiusPx: (M.clamp(Number(params.radius) || 35, 10, 80) / 100) * short,
+      div: Math.min(div, DOF_DIV_MAX),
+    };
+  },
+
+  // --- Focus Pull: the same lens, with the focus region travelling A -> B ---
+  // The ONLY difference from Depth of Field is that the centre is interpolated,
+  // so nothing about the frame moves -- only what is sharp.
+  focusPull(t, params, width, height) {
+    const u = M.progress(t, params.start, params.duration);
+    if (u < 0) return null;
+    const env = M.envelope(t, params.start, params.duration, 0.12);
+    if (env <= 0) return null;
+    const short = Math.min(width, height);
+    const div = 1 + (DOF_BLUR[params.blur] || DOF_BLUR.medium) * short * env;
+    if (div < 1.6) return null;
+    const k = M.smootherstep(u);                 // deterministic easing, no jumps
+    const fx = M.clamp(Number(params.fromX), 0, 1);
+    const fy = M.clamp(Number(params.fromY), 0, 1);
+    const tx = M.clamp(Number(params.toX), 0, 1);
+    const ty = M.clamp(Number(params.toY), 0, 1);
+    return {
+      cx: (fx + (tx - fx) * k) * width,
+      cy: (fy + (ty - fy) * k) * height,
+      radiusPx: (M.clamp(Number(params.radius) || 30, 10, 80) / 100) * short,
+      div: Math.min(div, DOF_DIV_MAX),
+    };
+  },
+
 };
 
 /* =========================================================================
@@ -1266,6 +1447,26 @@ const EffectMath = {
      - flash/vignette alphas combine as screen blends
      - the strongest overlapping motion blur wins
    ========================================================================= */
+// Posterize / Temporal Step: quantises WHICH source frame is fetched, before
+// anything is decoded or drawn. Output frame count and timestamps are untouched,
+// so the clip length never changes -- this is stepped time, not slow motion.
+// The coarsest active step wins, matching the "strongest wins" rule used by the
+// single-pass render stages.
+function computeSourceTime(effects, rawSourceTime) {
+  let hold = 0, anchor = 0;
+  for (const fx of effects) {
+    if (!fx.enabled || fx.type !== 'posterizeStep') continue;
+    const p = Object.assign({ start: fx.start, duration: fx.duration }, fx.params);
+    const step = EffectMath.temporalStep(rawSourceTime, p);
+    if (step && step.hold > hold) { hold = step.hold; anchor = step.anchor; }
+  }
+  if (!(hold > 0)) return rawSourceTime;
+  // Anchored at the effect start, so the first held frame is exactly the frame
+  // the window opens on and the quantised time is never before the window.
+  const stepped = anchor + Math.floor((rawSourceTime - anchor) / hold) * hold;
+  return stepped < anchor ? anchor : stepped;
+}
+
 function computeFrameState(effects, sourceTime, width, height, frameIndex) {
   let zoomScale = 1;
   let dx = 0, dy = 0, rot = 0, shakeMargin = 0;
@@ -1278,6 +1479,9 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
   let sharpenAmount = 0;
   // Group 1 accumulators
   let warp = null, bloom = null, flare = null, lightWipe = null;
+  // Group 2 accumulators. Depth of Field and Focus Pull share one descriptor so
+  // they also share one blur pass.
+  let wave = null, fisheye = null, dof = null;
   const fi = frameIndex || 0;
 
   for (const fx of effects) {
@@ -1404,6 +1608,31 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
         if (a > 0) flashAlpha = 1 - (1 - flashAlpha) * (1 - a);
         break;
       }
+
+      /* ---------------- Group 2 ---------------- */
+      case 'waveWarp': {
+        const wv = EffectMath.waveWarp(sourceTime, p, width, height);
+        // One displacement pass keeps the per-pixel cost bounded; strongest wins.
+        if (wv && (!wave || wv.amp > wave.amp)) wave = wv;
+        break;
+      }
+      case 'fisheye': {
+        const f = EffectMath.fisheye(sourceTime, p);
+        if (f && (!fisheye || f.k > fisheye.k)) fisheye = f;
+        break;
+      }
+      case 'posterizeStep':
+        break; // time-domain effect, applied by computeSourceTime before the seek
+      case 'focusBlur': {
+        const d = EffectMath.focusBlur(sourceTime, p, width, height);
+        if (d && (!dof || d.div > dof.div)) dof = d;
+        break;
+      }
+      case 'focusPull': {
+        const d = EffectMath.focusPull(sourceTime, p, width, height);
+        if (d && (!dof || d.div > dof.div)) dof = d;
+        break;
+      }
     }
   }
 
@@ -1432,6 +1661,7 @@ function computeFrameState(effects, sourceTime, width, height, frameIndex) {
     temporalTaps, chroma, radial, directional, glitch,
     sharpenAmount: Math.min(sharpenAmount, 1.5),
     warp, bloom, flare, lightWipe,
+    wave, fisheye, dof,
   };
 }
 
@@ -2005,6 +2235,18 @@ class FrameRenderer {
     return this.stages[name];
   }
 
+  // Depth of field needs a stage it can punch a hole in, which an alpha:false
+  // context cannot do. Same lazy, reused-surface contract as _stage.
+  _stageAlpha(name) {
+    if (!this.alphaStages) this.alphaStages = {};
+    if (!this.alphaStages[name]) {
+      const c = document.createElement('canvas');
+      c.width = this.width; c.height = this.height;
+      this.alphaStages[name] = { canvas: c, ctx: c.getContext('2d', { alpha: true }) };
+    }
+    return this.alphaStages[name];
+  }
+
   _gradient(ctx) {
     if (!this.vignetteGradient) {
       const cx = this.width / 2, cy = this.height / 2;
@@ -2053,6 +2295,14 @@ class FrameRenderer {
     // untouched by this addition. ---
     if (state.warp) { canvas = this._warp(canvas, state.warp); ctx = this._stage('warp').ctx; }
 
+    // --- Group 2 remaps. Both sit after Impact Warp and before the lens blurs,
+    // so no existing stage changes position relative to any other. Like the warp
+    // they run after the history push, leaving Motion Blur and Ghost Trail with
+    // pristine geometry frames. Wave first (a distortion in the scene), then
+    // fisheye (the lens the scene is viewed through). ---
+    if (state.wave) { canvas = this._displace(canvas, state.wave); ctx = this._stage('wave').ctx; }
+    if (state.fisheye) { canvas = this._fisheye(canvas, state.fisheye); ctx = this._stage('fisheye').ctx; }
+
     // --- spatial blurs: radial (lens/zoom) then directional ---
     if (state.radial) { canvas = this._radial(canvas, state.radial); ctx = this._stage('radial').ctx; }
     if (state.directional) { canvas = this._directional(canvas, state.directional); ctx = this._stage('directional').ctx; }
@@ -2060,6 +2310,11 @@ class FrameRenderer {
     // --- glitch tearing, then channel separation ---
     if (state.glitch) { canvas = this._glitch(canvas, state.glitch); ctx = this._stage('glitch').ctx; }
     if (state.chroma) { canvas = this._chroma(canvas, state.chroma); ctx = this._stage('chroma').ctx; }
+
+    // --- depth of field: the last optical stage, so everything the lens does
+    // (blur, tearing, aberration) is already in the image, and the bloom below
+    // then glows the out-of-focus highlights the way a real lens does. ---
+    if (state.dof) { canvas = this._dof(canvas, state.dof); ctx = this._stage('dof').ctx; }
 
     // --- light: bloom the real image, then the flare sits on top of it.
     // Both run BEFORE flash so a white overlay never gets bloomed. ---
@@ -2335,6 +2590,235 @@ class FrameRenderer {
     return out.canvas;
   }
 
+  // Displacement / Wave Warp: per-pixel inverse displacement by a travelling
+  // transverse wave plus a weaker longitudinal ripple.
+  //
+  // BORDER PROOF. Each displacement component is bounded by amp*1.10 = maxComp.
+  // The field is multiplied by a taper that reaches 1 only at distance taperW =
+  // 2*maxComp from the edge, using smoothstep. For a pixel d from the edge the
+  // applied displacement is at most maxComp*smoothstep(d/(2*maxComp)), and
+  // smoothstep(x) <= 2x on [0,1] (its maximum of smoothstep(x)/2x is 0.5625 at
+  // x = 0.75), so the displacement never exceeds d. A sample therefore cannot
+  // cross the border. Coordinates are clamped as a second, independent guarantee.
+  _displace(src, wv) {
+    const W = this.width, H = this.height;
+    const out = this._stage('wave');
+    const octx = out.ctx;
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.globalAlpha = 1;
+    octx.globalCompositeOperation = 'source-over';
+    octx.drawImage(src, 0, 0);
+
+    const img = octx.getImageData(0, 0, W, H);
+    const dst = img.data;
+    if (!this.waveSrcBuf || this.waveSrcBuf.length !== dst.length) {
+      this.waveSrcBuf = new Uint8ClampedArray(dst.length);
+    }
+    const buf = this.waveSrcBuf;
+    buf.set(dst);
+
+    const amp = wv.amp;
+    const maxComp = amp * 1.10;
+    const invTaper = 1 / (2 * maxComp);
+    // The horizontal taper depends only on x, so it is built once per frame
+    // rather than recomputed for every pixel of every row.
+    if (!this.waveTaperX || this.waveTaperX.length !== W) this.waveTaperX = new Float64Array(W);
+    const taperX = this.waveTaperX;
+    for (let x = 0; x < W; x++) taperX[x] = M.smoothstep(Math.min(x, W - 1 - x) * invTaper);
+
+    const cx = W / 2, cy = H / 2;
+    const ax = Math.cos(wv.angle), ay = Math.sin(wv.angle);
+    // Fold the table scale into the wave numbers so the inner loop is an index.
+    const k1s = wv.k1 * SIN_LUT_SCALE, k2s = wv.k2 * SIN_LUT_SCALE;
+    const ph = wv.phase * SIN_LUT_SCALE;
+
+    for (let y = 0; y < H; y++) {
+      const ty = M.smoothstep(Math.min(y, H - 1 - y) * invTaper);
+      const ry = y - cy;
+      const rowOff = y * W;
+      if (ty <= 0) continue;                       // untouched band at top/bottom
+      for (let x = 0; x < W; x++) {
+        const taper = taperX[x] * ty;
+        if (taper <= 0) continue;                  // dst already holds this pixel
+        const rx = x - cx;
+        const sAxis = rx * ax + ry * ay;           // along the travel direction
+        const qAxis = ry * ax - rx * ay;           // across it
+        const w1 = SIN_LUT[(k1s * sAxis + ph) & SIN_LUT_MASK];
+        const w2 = SIN_LUT[(k2s * qAxis - ph * 1.31) & SIN_LUT_MASK];
+        const w3 = SIN_LUT[(k2s * qAxis * 1.3 + ph * 0.83 + 850) & SIN_LUT_MASK];
+        const d = amp * (0.72 * w1 + 0.28 * w2);   // transverse, |d| <= amp
+        const dl = amp * 0.35 * w3;                // longitudinal ripple
+        let sx = x + (dl * ax - d * ay) * taper;
+        let sy = y + (dl * ay + d * ax) * taper;
+        sx = sx < 0 ? 0 : (sx > W - 1 ? W - 1 : sx);
+        sy = sy < 0 ? 0 : (sy > H - 1 ? H - 1 : sy);
+        const ix = sx | 0, iy = sy | 0;
+        const fx = sx - ix, fy = sy - iy;
+        const ix1 = ix + 1 < W ? ix + 1 : ix;
+        const iy1 = iy + 1 < H ? iy + 1 : iy;
+        const i00 = (iy * W + ix) * 4, i10 = (iy * W + ix1) * 4;
+        const i01 = (iy1 * W + ix) * 4, i11 = (iy1 * W + ix1) * 4;
+        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
+        const w01 = (1 - fx) * fy, w11 = fx * fy;
+        const o = (rowOff + x) * 4;
+        for (let c = 0; c < 3; c++) {
+          dst[o + c] = buf[i00 + c] * w00 + buf[i10 + c] * w10 + buf[i01 + c] * w01 + buf[i11 + c] * w11;
+        }
+      }
+    }
+    octx.putImageData(img, 0, 0);
+    return out.canvas;
+  }
+
+  // Radial profile for the fisheye: f(rn) = tan(rn*atan(K)) / (K*rn), the source
+  // radius as a fraction of the destination radius. Rebuilt only when K changes,
+  // which for a held window is once every few frames rather than per pixel.
+  _fisheyeLut(k) {
+    if (this.feLut && this.feLutK === k) return this.feLut;
+    const n = FISHEYE_LUT_N;
+    const t = new Float64Array(n);
+    const a = Math.atan(k);
+    t[0] = a / k;                                  // limit as rn -> 0
+    for (let i = 1; i < n; i++) {
+      const rn = i / (n - 1);
+      t[i] = Math.tan(rn * a) / (k * rn);
+    }
+    this.feLut = t;
+    this.feLutK = k;
+    return t;
+  }
+
+  // Fisheye / Barrel Distortion: global radial remap about the frame centre.
+  // Because f(rn) <= 1 for every rn in [0,1] and f(1) = 1 exactly, the source
+  // radius is never larger than the destination radius and the corner maps to
+  // itself -- the centre swells, nothing is cropped, no corner can go black.
+  // Distances are real pixel distances, so the distortion is circular in both
+  // portrait and landscape rather than stretched by the aspect ratio.
+  _fisheye(src, fe) {
+    const W = this.width, H = this.height;
+    const out = this._stage('fisheye');
+    const octx = out.ctx;
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.globalAlpha = 1;
+    octx.globalCompositeOperation = 'source-over';
+    octx.drawImage(src, 0, 0);
+
+    const img = octx.getImageData(0, 0, W, H);
+    const dst = img.data;
+    if (!this.feSrcBuf || this.feSrcBuf.length !== dst.length) {
+      this.feSrcBuf = new Uint8ClampedArray(dst.length);
+    }
+    const buf = this.feSrcBuf;
+    buf.set(dst);
+
+    const cx = W / 2, cy = H / 2;
+    const rMax = Math.sqrt(cx * cx + cy * cy);
+    const lut = this._fisheyeLut(fe.k);
+    const lastIdx = FISHEYE_LUT_N - 1;
+
+    for (let y = 0; y < H; y++) {
+      const dy = y - cy;
+      const dy2 = dy * dy;
+      const rowOff = y * W;
+      for (let x = 0; x < W; x++) {
+        const dx = x - cx;
+        const r = Math.sqrt(dx * dx + dy2);
+        let rn = r / rMax;
+        if (rn > 1) rn = 1;
+        const fi = rn * lastIdx;
+        const i0 = fi | 0;
+        const i1 = i0 < lastIdx ? i0 + 1 : lastIdx;
+        const f = lut[i0] + (lut[i1] - lut[i0]) * (fi - i0);
+        let sx = cx + dx * f;
+        let sy = cy + dy * f;
+        sx = sx < 0 ? 0 : (sx > W - 1 ? W - 1 : sx);
+        sy = sy < 0 ? 0 : (sy > H - 1 ? H - 1 : sy);
+        const ix = sx | 0, iy = sy | 0;
+        const fx = sx - ix, fy = sy - iy;
+        const ix1 = ix + 1 < W ? ix + 1 : ix;
+        const iy1 = iy + 1 < H ? iy + 1 : iy;
+        const i00 = (iy * W + ix) * 4, i10 = (iy * W + ix1) * 4;
+        const i01 = (iy1 * W + ix) * 4, i11 = (iy1 * W + ix1) * 4;
+        const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
+        const w01 = (1 - fx) * fy, w11 = fx * fy;
+        const o = (rowOff + x) * 4;
+        for (let c = 0; c < 3; c++) {
+          dst[o + c] = buf[i00 + c] * w00 + buf[i10 + c] * w10 + buf[i01 + c] * w01 + buf[i11 + c] * w11;
+        }
+      }
+    }
+    octx.putImageData(img, 0, 0);
+    return out.canvas;
+  }
+
+  // Depth of Field / Focus Blur, shared with Focus Pull -- the two differ only in
+  // where the focus centre is, so they are one pass here.
+  // Reuses the bloom pyramid trick: blur by downscaling and scaling back up with
+  // deterministic bilinear drawImage, never a per-pixel convolution. The blurred
+  // layer then has the in-focus region erased out of it with a smooth radial
+  // gradient, so the transition has no hard circular edge, and it is laid over
+  // the sharp frame. Nothing samples outside the canvas, so no border can open.
+  _dof(src, d) {
+    const W = this.width, H = this.height;
+    const div = M.clamp(d.div, 1.6, DOF_DIV_MAX);
+    const bw = Math.max(2, Math.round(W / div));
+    const bh = Math.max(2, Math.round(H / div));
+    const hw = Math.max(1, Math.round(bw / 2));
+    const hh = Math.max(1, Math.round(bh / 2));
+
+    const small = this._stage('dofSmall');
+    const tmp = this._stage('dofTmp');
+    if (small.canvas.width !== bw || small.canvas.height !== bh) {
+      small.canvas.width = bw; small.canvas.height = bh;
+    }
+    if (tmp.canvas.width !== hw || tmp.canvas.height !== hh) {
+      tmp.canvas.width = hw; tmp.canvas.height = hh;
+    }
+    const sctx = small.ctx, tctx = tmp.ctx;
+    sctx.setTransform(1, 0, 0, 1, 0, 0);
+    sctx.globalAlpha = 1;
+    sctx.globalCompositeOperation = 'source-over';
+    sctx.drawImage(src, 0, 0, W, H, 0, 0, bw, bh);
+    // One more down/up pass softens the box edges the first downscale leaves.
+    tctx.setTransform(1, 0, 0, 1, 0, 0);
+    tctx.globalAlpha = 1;
+    tctx.globalCompositeOperation = 'source-over';
+    tctx.drawImage(small.canvas, 0, 0, bw, bh, 0, 0, hw, hh);
+    sctx.drawImage(tmp.canvas, 0, 0, hw, hh, 0, 0, bw, bh);
+
+    const layer = this._stageAlpha('dofLayer');
+    const lctx = layer.ctx;
+    lctx.setTransform(1, 0, 0, 1, 0, 0);
+    lctx.globalAlpha = 1;
+    lctx.globalCompositeOperation = 'copy';   // replaces the previous frame outright
+    lctx.drawImage(small.canvas, 0, 0, bw, bh, 0, 0, W, H);
+    lctx.globalCompositeOperation = 'destination-out';
+    // Erase the blur where the picture should be sharp. Alpha 1 keeps the frame
+    // fully sharp, alpha 0 keeps the blur fully. Sampling a smoothstep gives a
+    // falloff with zero slope at both ends, so neither the edge of the sharp core
+    // nor the start of the fully-blurred area reads as a circle.
+    const rOuter = Math.max(1, d.radiusPx * DOF_FALLOFF);
+    const inner = 1 / DOF_FALLOFF;
+    const g = lctx.createRadialGradient(d.cx, d.cy, 0, d.cx, d.cy, rOuter);
+    g.addColorStop(0, 'rgba(0,0,0,1)');
+    for (let i = 0; i <= DOF_FALLOFF_STOPS; i++) {
+      const f = i / DOF_FALLOFF_STOPS;
+      g.addColorStop(inner + (1 - inner) * f, 'rgba(0,0,0,' + (1 - M.smoothstep(f)).toFixed(5) + ')');
+    }
+    lctx.fillStyle = g;
+    lctx.fillRect(0, 0, W, H);
+    lctx.globalCompositeOperation = 'source-over';
+
+    const out = this._stage('dof');
+    const octx = out.ctx;
+    octx.setTransform(1, 0, 0, 1, 0, 0);
+    octx.globalAlpha = 1;
+    octx.globalCompositeOperation = 'source-over';
+    octx.drawImage(src, 0, 0);
+    octx.drawImage(layer.canvas, 0, 0);
+    return out.canvas;
+  }
+
   // Glow / Bloom: bright-pass at 1/4 size, pyramid-blurred with plain
   // drawImage scaling (deterministic bilinear), then added back.
   _bloom(src, ctx, bloom) {
@@ -2564,7 +3048,13 @@ async function renderPipeline({ video, meta, effects, outputFps, timeMap, hook, 
 
       // Output frame index -> output time -> source time. Nothing here reads a clock.
       const outputTime = i / outputFps;
-      const sourceTime = M.clamp(timeMap.sourceTimeAt(outputTime), 0, lastValidTime);
+      const rawSourceTime = M.clamp(timeMap.sourceTimeAt(outputTime), 0, lastValidTime);
+      // Posterize / Temporal Step snaps the source time to a coarser grid, so
+      // several output frames fetch the same source frame. It runs here, before
+      // the seek, so the whole frame -- picture and every other effect alike --
+      // holds together, and the time map, frame count and clip length are all
+      // left exactly as they were.
+      const sourceTime = M.clamp(computeSourceTime(effects, rawSourceTime), 0, lastValidTime);
 
       await seekVideoTo(video, sourceTime);
 
@@ -3139,7 +3629,7 @@ exportBtn.addEventListener('click', async () => {
    the same code the UI drives -- there is no separate test-only pipeline. */
 window.VEL = {
   EFFECT_TYPES, EffectMath, M, TimeMap, EffectStack,
-  computeFrameState, validateRender, renderPipeline, FrameRenderer,
+  computeFrameState, computeSourceTime, validateRender, renderPipeline, FrameRenderer,
   coverScaleFor, hash3, mergeTemporalTaps, seekVideoTo,
   buildRadialStreak, buildDirectionalBlur,
   computeHookState, fitHookFontPx, HOOK_DEFAULTS,
