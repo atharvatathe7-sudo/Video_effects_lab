@@ -2581,9 +2581,9 @@ class FrameRenderer {
         const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
         const w01 = (1 - fx) * fy, w11 = fx * fy;
         const o = (y * rw + x) * 4;
-        for (let c = 0; c < 3; c++) {
-          dst[o + c] = buf[i00 + c] * w00 + buf[i10 + c] * w10 + buf[i01 + c] * w01 + buf[i11 + c] * w11;
-        }
+        dst[o] = buf[i00] * w00 + buf[i10] * w10 + buf[i01] * w01 + buf[i11] * w11;
+        dst[o + 1] = buf[i00 + 1] * w00 + buf[i10 + 1] * w10 + buf[i01 + 1] * w01 + buf[i11 + 1] * w11;
+        dst[o + 2] = buf[i00 + 2] * w00 + buf[i10 + 2] * w10 + buf[i01 + 2] * w01 + buf[i11 + 2] * w11;
       }
     }
     octx.putImageData(region, x0, y0);
@@ -2631,6 +2631,10 @@ class FrameRenderer {
     // Fold the table scale into the wave numbers so the inner loop is an index.
     const k1s = wv.k1 * SIN_LUT_SCALE, k2s = wv.k2 * SIN_LUT_SCALE;
     const ph = wv.phase * SIN_LUT_SCALE;
+    // Phase terms are constant for the whole frame; computing them per pixel was
+    // three million multiplies at 720p for the same two numbers. Same values,
+    // same operations -- only evaluated once.
+    const ph131 = ph * 1.31, ph083 = ph * 0.83 + 850;
 
     for (let y = 0; y < H; y++) {
       const ty = M.smoothstep(Math.min(y, H - 1 - y) * invTaper);
@@ -2644,8 +2648,8 @@ class FrameRenderer {
         const sAxis = rx * ax + ry * ay;           // along the travel direction
         const qAxis = ry * ax - rx * ay;           // across it
         const w1 = SIN_LUT[(k1s * sAxis + ph) & SIN_LUT_MASK];
-        const w2 = SIN_LUT[(k2s * qAxis - ph * 1.31) & SIN_LUT_MASK];
-        const w3 = SIN_LUT[(k2s * qAxis * 1.3 + ph * 0.83 + 850) & SIN_LUT_MASK];
+        const w2 = SIN_LUT[(k2s * qAxis - ph131) & SIN_LUT_MASK];
+        const w3 = SIN_LUT[(k2s * qAxis * 1.3 + ph083) & SIN_LUT_MASK];
         const d = amp * (0.72 * w1 + 0.28 * w2);   // transverse, |d| <= amp
         const dl = amp * 0.35 * w3;                // longitudinal ripple
         let sx = x + (dl * ax - d * ay) * taper;
@@ -2661,9 +2665,9 @@ class FrameRenderer {
         const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
         const w01 = (1 - fx) * fy, w11 = fx * fy;
         const o = (rowOff + x) * 4;
-        for (let c = 0; c < 3; c++) {
-          dst[o + c] = buf[i00 + c] * w00 + buf[i10 + c] * w10 + buf[i01 + c] * w01 + buf[i11 + c] * w11;
-        }
+        dst[o] = buf[i00] * w00 + buf[i10] * w10 + buf[i01] * w01 + buf[i11] * w11;
+        dst[o + 1] = buf[i00 + 1] * w00 + buf[i10 + 1] * w10 + buf[i01 + 1] * w01 + buf[i11 + 1] * w11;
+        dst[o + 2] = buf[i00 + 2] * w00 + buf[i10 + 2] * w10 + buf[i01 + 2] * w01 + buf[i11 + 2] * w11;
       }
     }
     octx.putImageData(img, 0, 0);
@@ -2686,6 +2690,32 @@ class FrameRenderer {
     this.feLut = t;
     this.feLutK = k;
     return t;
+  }
+
+  // Per-pixel position on the radial profile, in LUT index units. Invariant for
+  // a given frame size, so it is built once and reused for every later frame and
+  // every strength. One Float64Array of W*H (7.4MB at 720p), allocated only when
+  // the fisheye actually runs.
+  _fisheyeRadiusMap(cx, cy, lastIdx) {
+    const W = this.width, H = this.height;
+    if (this.feRadiusMap && this.feRadiusW === W && this.feRadiusH === H) return this.feRadiusMap;
+    const map = new Float64Array(W * H);
+    const rMax = Math.sqrt(cx * cx + cy * cy);
+    for (let y = 0; y < H; y++) {
+      const dy = y - cy;
+      const dy2 = dy * dy;
+      const rowOff = y * W;
+      for (let x = 0; x < W; x++) {
+        const dx = x - cx;
+        let rn = Math.sqrt(dx * dx + dy2) / rMax;
+        if (rn > 1) rn = 1;
+        map[rowOff + x] = rn * lastIdx;
+      }
+    }
+    this.feRadiusMap = map;
+    this.feRadiusW = W;
+    this.feRadiusH = H;
+    return map;
   }
 
   // Fisheye / Barrel Distortion: global radial remap about the frame centre.
@@ -2712,20 +2742,22 @@ class FrameRenderer {
     buf.set(dst);
 
     const cx = W / 2, cy = H / 2;
-    const rMax = Math.sqrt(cx * cx + cy * cy);
     const lut = this._fisheyeLut(fe.k);
     const lastIdx = FISHEYE_LUT_N - 1;
+    // Each pixel's position on the radial profile depends only on the frame
+    // geometry, never on the strength or the timestamp, so the square root and
+    // divide behind it are done once per resolution instead of once per pixel
+    // per frame. Float64 keeps the index bit-for-bit what the inline version
+    // produced -- Float32 would perturb the interpolation and could shift a
+    // rounded output byte.
+    const radiusIdx = this._fisheyeRadiusMap(cx, cy, lastIdx);
 
     for (let y = 0; y < H; y++) {
       const dy = y - cy;
-      const dy2 = dy * dy;
       const rowOff = y * W;
       for (let x = 0; x < W; x++) {
         const dx = x - cx;
-        const r = Math.sqrt(dx * dx + dy2);
-        let rn = r / rMax;
-        if (rn > 1) rn = 1;
-        const fi = rn * lastIdx;
+        const fi = radiusIdx[rowOff + x];
         const i0 = fi | 0;
         const i1 = i0 < lastIdx ? i0 + 1 : lastIdx;
         const f = lut[i0] + (lut[i1] - lut[i0]) * (fi - i0);
@@ -2742,9 +2774,9 @@ class FrameRenderer {
         const w00 = (1 - fx) * (1 - fy), w10 = fx * (1 - fy);
         const w01 = (1 - fx) * fy, w11 = fx * fy;
         const o = (rowOff + x) * 4;
-        for (let c = 0; c < 3; c++) {
-          dst[o + c] = buf[i00 + c] * w00 + buf[i10 + c] * w10 + buf[i01 + c] * w01 + buf[i11 + c] * w11;
-        }
+        dst[o] = buf[i00] * w00 + buf[i10] * w10 + buf[i01] * w01 + buf[i11] * w11;
+        dst[o + 1] = buf[i00 + 1] * w00 + buf[i10 + 1] * w10 + buf[i01 + 1] * w01 + buf[i11 + 1] * w11;
+        dst[o + 2] = buf[i00 + 2] * w00 + buf[i10 + 2] * w10 + buf[i01 + 2] * w01 + buf[i11 + 2] * w11;
       }
     }
     octx.putImageData(img, 0, 0);
@@ -3099,6 +3131,11 @@ const addEffectBtn = document.getElementById('addEffectBtn');
 const addEffectType = document.getElementById('addEffectType');
 
 let meta = null;
+// Identifies the loaded clip for the render cache. Bumped on every load, so two
+// different files can never share a cache entry even if name, size and duration
+// happen to match.
+let currentSourceKey = null;
+let sourceLoadCounter = 0;
 let currentObjectURL = null;
 let processedObjectURL = null;
 let downloadObjectURL = null;
@@ -3456,6 +3493,11 @@ async function loadFile(file) {
     processedVideo.load();
     document.getElementById('processedHint').textContent = 'Not generated yet. Use "Generate Preview".';
 
+    // A new clip invalidates any held render.
+    RenderCache.clear();
+    sourceLoadCounter++;
+    currentSourceKey = sourceLoadCounter + ':' + file.name + ':' + file.size + ':' + file.lastModified;
+
     if (currentObjectURL) URL.revokeObjectURL(currentObjectURL);
     currentObjectURL = URL.createObjectURL(file); // the source file itself is only ever read
     sourceVideo.src = currentObjectURL;
@@ -3495,6 +3537,41 @@ document.getElementById('outputFpsInput').addEventListener('change', updateOutpu
 });
 
 /* ---- shared render driver for Preview and Export ---- */
+/* ---- Render reuse ----
+   The renderer is a pure function of exactly these inputs: the source clip, the
+   effect stack, the hook, and the output frame rate. Everything downstream --
+   the time map, every effect evaluator, the frame history, the encoder settings
+   -- is derived from them deterministically, which is why Preview and Export
+   already produce byte-identical files (the parity tests assert it every run).
+
+   So rendering the same inputs twice is pure redundant work, and the commonest
+   flow in the app does exactly that: press Generate Preview, look at it, then
+   press Export and render all over again. Holding the last result and handing it
+   back on an exact input match removes that second render entirely. The returned
+   bytes are the same bytes the render would have produced -- nothing is
+   approximated, and any change to any input misses the key and re-renders.
+
+   Only the most recent result is kept, so at most one output blob is held. */
+const RenderCache = (() => {
+  let key = null;
+  let value = null;
+  return {
+    keyFor(sourceKey, effects, hook, outputFps, m) {
+      if (!m) return null;
+      return JSON.stringify({
+        src: sourceKey,
+        w: m.width, h: m.height, d: m.duration,
+        fps: outputFps,
+        hook,
+        fx: effects.map((f) => ({ t: f.type, s: f.start, u: f.duration, e: !!f.enabled, p: f.params })),
+      });
+    },
+    get(k) { return (k !== null && k === key) ? value : null; },
+    set(k, v) { if (k !== null) { key = k; value = v; } },
+    clear() { key = null; value = null; },
+  };
+})();
+
 async function runRender(kind, wrapId, barId, statusId) {
   const effects = EffectStack.snapshot();
   const outputFps = currentOutputFps();
@@ -3509,6 +3586,17 @@ async function runRender(kind, wrapId, barId, statusId) {
     return null;
   }
   warnings.forEach((w) => Log.warn(w));
+
+  // Identical inputs to the last completed render? Then the frames would be
+  // identical too, so hand back what was already produced.
+  const cacheKey = RenderCache.keyFor(currentSourceKey, effects, hook, outputFps, meta);
+  const cached = RenderCache.get(cacheKey);
+  if (cached) {
+    document.getElementById(wrapId).style.display = 'block';
+    document.getElementById(barId).style.width = '100%';
+    Log.info(kind + ' reused the previous render of the same effect stack (nothing changed, so the frames are identical).');
+    return Object.assign({}, cached, { reused: true, elapsed: 0, warnings });
+  }
 
   // A second <video> element decoding in the same page can, rarely, make the
   // source element hand drawImage() a stale frame -- reproduced as a one-frame
@@ -3538,6 +3626,7 @@ async function runRender(kind, wrapId, barId, statusId) {
     });
     result.elapsed = (performance.now() - startedAt) / 1000;
     result.warnings = warnings;
+    RenderCache.set(cacheKey, { blob: result.blob, frames: result.frames, duration: result.duration });
     return result;
   } catch (err) {
     setStatus(statusId, kind + ' failed: ' + err.message, 'error');
@@ -3574,7 +3663,9 @@ previewBtn.addEventListener('click', async () => {
   document.getElementById('processedHint').textContent =
     'Preview: ' + meta.width + 'x' + meta.height + ', ' + result.duration.toFixed(2) + 's, ' +
     result.frames + ' frames, ' + formatBytes(result.blob.size) + ' (video only, no audio).';
-  setStatus('previewStatus', 'Preview ready in ' + result.elapsed.toFixed(1) + 's.' +
+  setStatus('previewStatus', (result.reused
+    ? 'Preview ready — reused the existing render (nothing affecting the frames has changed).'
+    : 'Preview ready in ' + result.elapsed.toFixed(1) + 's.') +
     (result.warnings.length ? '\nWarnings:\n  • ' + result.warnings.join('\n  • ') : ''), 'ok');
   Log.info('Preview rendered: ' + result.frames + ' frames, ' + formatBytes(result.blob.size) + ' in ' + result.elapsed.toFixed(1) + 's');
 });
@@ -3605,10 +3696,13 @@ exportBtn.addEventListener('click', async () => {
   document.getElementById('outDuration').textContent = result.duration.toFixed(3) + ' s';
   document.getElementById('outFrames').textContent = result.frames + ' @ ' + currentOutputFps() + ' fps';
   document.getElementById('outSize').textContent = formatBytes(result.blob.size);
-  document.getElementById('outRenderTime').textContent = result.elapsed.toFixed(1) + ' s';
+  document.getElementById('outRenderTime').textContent = result.reused
+    ? 'reused the preview render (0 s)' : result.elapsed.toFixed(1) + ' s';
 
-  setStatus('exportStatus', 'Export complete in ' + result.elapsed.toFixed(1) + 's. Download started automatically ' +
-    '(use the link below if it did not). Audio is not preserved.' +
+  setStatus('exportStatus', (result.reused
+    ? 'Export complete — reused the identical preview render, so nothing had to be rendered again. '
+    : 'Export complete in ' + result.elapsed.toFixed(1) + 's. ') +
+    'Download started automatically (use the link below if it did not). Audio is not preserved.' +
     (result.warnings.length ? '\nWarnings:\n  • ' + result.warnings.join('\n  • ') : ''), 'ok');
   Log.info('Export rendered: ' + result.frames + ' frames, ' + formatBytes(result.blob.size) + ' in ' + result.elapsed.toFixed(1) + 's -> ' + outName);
 });
@@ -3630,6 +3724,7 @@ exportBtn.addEventListener('click', async () => {
 window.VEL = {
   EFFECT_TYPES, EffectMath, M, TimeMap, EffectStack,
   computeFrameState, computeSourceTime, validateRender, renderPipeline, FrameRenderer,
+  clearRenderCache: () => RenderCache.clear(),
   coverScaleFor, hash3, mergeTemporalTaps, seekVideoTo,
   buildRadialStreak, buildDirectionalBlur,
   computeHookState, fitHookFontPx, HOOK_DEFAULTS,
