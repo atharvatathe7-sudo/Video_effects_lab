@@ -192,6 +192,7 @@
       <tr><td class="k">Output frame rate used</td><td>
         <input type="number" id="outputFpsInput" min="1" max="120" step="1" value="30" style="width:70px;"> fps
         <span class="hint" style="margin:0;">(drives the deterministic output frame grid)</span>
+        <div class="status error" id="outputFpsError" style="display:none;margin-top:4px;"></div>
       </td></tr>
       <tr><td class="k">Output duration</td><td id="infoOutputDuration">&mdash;</td></tr>
     </table>
@@ -1940,7 +1941,7 @@ function validateRender(effects, meta, outputFps, timeMap, hook) {
   if (!meta) { errors.push('No video is loaded.'); return { errors, warnings }; }
   if (!(meta.width > 0 && meta.height > 0)) errors.push('Source video has no readable dimensions.');
   if (!(meta.duration > 0) || !isFinite(meta.duration)) errors.push('Source video has no readable duration.');
-  if (!(outputFps >= 1 && outputFps <= 120)) errors.push('Output frame rate must be between 1 and 120 fps.');
+  if (!(Number.isInteger(outputFps) && outputFps >= 1 && outputFps <= 120)) errors.push('Output frame rate must be a whole number between 1 and 120 fps.');
 
   for (const fx of effects) {
     if (!fx.enabled) continue;
@@ -2083,11 +2084,47 @@ const Metadata = (() => {
     return map[ext] || 'unknown';
   }
 
+  const usableDuration = (d) => typeof d === 'number' && isFinite(d) && d > 0;
+  const DURATION_SCAN_TIMEOUT_MS = 15000;
+
+  // A loaded file can still report an Infinite (not yet known) duration: WebM
+  // written by streaming recorders often carries no Duration element, and the
+  // browser only learns the length once it has found the end of the file.
+  // Seeking past the end makes it locate the end; 'seeked' then reports the
+  // real duration, or proves it cannot be determined. Bounded, never indefinite.
+  function resolveDuration(video) {
+    if (usableDuration(video.duration)) return Promise.resolve(video.duration);
+    if (video.duration === 0) return Promise.reject(new Error('The video reports a duration of 0 seconds (empty or truncated file?).'));
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      function cleanup() {
+        video.removeEventListener('seeked', onDone);
+        video.removeEventListener('error', onError);
+        clearTimeout(timer);
+      }
+      function onDone() {
+        if (settled) return;
+        settled = true; cleanup();
+        const d = video.duration;
+        video.currentTime = 0;
+        if (usableDuration(d)) resolve(d);
+        else reject(new Error('The browser could not determine this video\'s duration (reported: ' + d + '). ' +
+          'The file has no duration information and its end could not be located. Re-saving or remuxing it usually fixes this.'));
+      }
+      function onError() { if (settled) return; settled = true; cleanup(); reject(new Error('Could not read the video while locating its end (unsupported or corrupt file?)')); }
+      const timer = setTimeout(onDone, DURATION_SCAN_TIMEOUT_MS);
+      video.addEventListener('seeked', onDone);
+      video.addEventListener('error', onError);
+      Log.info('Video duration is not in the file header; locating the end of the file to measure it.');
+      video.currentTime = Number.MAX_SAFE_INTEGER;
+    });
+  }
+
   async function detect(file, video) {
     await waitForLoadedMetadata(video);
     const width = video.videoWidth;
     const height = video.videoHeight;
-    const duration = video.duration;
+    const duration = await resolveDuration(video);
     Log.info('Metadata loaded: ' + width + 'x' + height + ', duration=' + duration.toFixed(3) + 's');
 
     document.getElementById('infoName').textContent = file.name;
@@ -2129,24 +2166,73 @@ const Metadata = (() => {
    ========================================================================= */
 const SEEK_TIMEOUT_MS = 15000;
 const SEEK_MAX_ATTEMPTS = 3;
+// Chromium keeps currentTime in whole microseconds (truncated), so 2 us means
+// 'the same instant'. A wider margin let a request just past a frame boundary
+// (e.g. 1.2800 s right after 1.2799 s) be taken as already satisfied and keep
+// the previous frame.
+const SEEK_EPSILON = 0.000002;
+// Rendering updates to watch for a late frame when a seek ends on the frame
+// that was already showing (see seekOnce).
+const SEEK_SETTLE_UPDATES = 4;
+
+// Media timestamp (us) of the frame the element is presenting right now, or
+// null when it cannot be read (no frame decoded yet, or no WebCodecs).
+function presentedFrameTimestamp(video) {
+  if (typeof VideoFrame === 'undefined') return null;
+  let frame = null;
+  try { frame = new VideoFrame(video); return frame.timestamp; }
+  catch (err) { return null; }
+  finally { if (frame) frame.close(); }
+}
 
 function seekOnce(video, t) {
   return new Promise((resolve, reject) => {
+    // Frames are read from a paused element; playback would move the frame
+    // between the seek and the read.
+    if (!video.paused) video.pause();
     // Already parked on exactly this timestamp: the element still holds that
     // frame, so reading it now is correct (and depends only on the requested
     // time sequence, never on timing).
-    if (Math.abs(video.currentTime - t) < 0.0005) { resolve('already'); return; }
-    let settled = false;
+    if (!video.seeking && Math.abs(video.currentTime - t) < SEEK_EPSILON) { resolve('already'); return; }
+
+    // 'seeked' alone does not guarantee drawImage() sees the new frame:
+    // Chromium was observed, under load and above all on seeks into the last
+    // frame of a clip, firing 'seeked' while the element still presented the
+    // frame from BEFORE the seek, the new frame arriving a rendering update or
+    // two later. A seek whose frame visibly changed is complete. One that still
+    // shows the old frame is either that late case or a seek that legitimately
+    // stays on the same frame -- the browser offers no signal that tells them
+    // apart -- so the element is re-checked at each rendering update and the
+    // old frame is accepted only after SEEK_SETTLE_UPDATES updates bring
+    // nothing new. (A hidden page runs no rendering updates; there 'seeked' is
+    // the strongest signal available.)
+    const before = presentedFrameTimestamp(video);
+    let settled = false, seeked = false, updates = 0, rafHandle = 0;
     function cleanup() {
       video.removeEventListener('seeked', onSeeked);
       video.removeEventListener('error', onError);
+      document.removeEventListener('visibilitychange', check);
+      if (rafHandle) cancelAnimationFrame(rafHandle);
+      rafHandle = 0;
       clearTimeout(timer);
     }
-    function onSeeked() { if (settled) return; settled = true; cleanup(); resolve('seeked'); }
+    function finish(outcome) { if (settled) return; settled = true; cleanup(); resolve(outcome); }
+    function check() {
+      if (settled || !seeked) return;
+      // Something else moved the element or restarted playback after this seek
+      // was issued: the frame on it is not the one requested, so seek again.
+      if (!video.paused || Math.abs(video.currentTime - t) >= SEEK_EPSILON) { finish('moved'); return; }
+      const now = presentedFrameTimestamp(video);
+      if (now === null || now !== before || document.hidden || updates >= SEEK_SETTLE_UPDATES) { finish('seeked'); return; }
+      if (!rafHandle) rafHandle = requestAnimationFrame(onUpdate);
+    }
+    function onUpdate() { rafHandle = 0; updates++; check(); }
+    function onSeeked() { seeked = true; check(); }
     function onError() { if (settled) return; settled = true; cleanup(); reject(new Error('Video decode/seek error at t=' + t.toFixed(3) + 's')); }
-    const timer = setTimeout(() => { if (settled) return; settled = true; cleanup(); resolve('timeout'); }, SEEK_TIMEOUT_MS);
+    const timer = setTimeout(() => finish('timeout'), SEEK_TIMEOUT_MS);
     video.addEventListener('seeked', onSeeked);
     video.addEventListener('error', onError);
+    document.addEventListener('visibilitychange', check);
     video.currentTime = t;
   });
 }
@@ -2155,11 +2241,19 @@ function seekOnce(video, t) {
 // fall through and draw whatever frame happens to be in the element. If the
 // decoder really will not deliver the frame, the render stops with an error
 // instead of silently writing a wrong frame and breaking determinism.
-async function seekVideoTo(video, t) {
+// stillWanted, when given, lets a caller that has been superseded stop instead
+// of retrying -- so it never fights a render for the element.
+async function seekVideoTo(video, t, stillWanted) {
   for (let attempt = 1; attempt <= SEEK_MAX_ATTEMPTS; attempt++) {
     const outcome = await seekOnce(video, t);
-    if (outcome !== 'timeout') return;
-    Log.warn('Seek to ' + t.toFixed(3) + 's timed out (attempt ' + attempt + '/' + SEEK_MAX_ATTEMPTS + '); retrying rather than using a stale frame.');
+    if (outcome === 'seeked' || outcome === 'already') return;
+    if (stillWanted && !stillWanted()) return;
+    const where = 'Seek to ' + t.toFixed(3) + 's (attempt ' + attempt + '/' + SEEK_MAX_ATTEMPTS + ')';
+    if (outcome === 'moved') {
+      Log.warn(where + ' was disturbed by another change to the video; seeking again.');
+    } else {
+      Log.warn(where + ' timed out; retrying rather than using a stale frame.');
+    }
   }
   throw new Error('The video decoder did not deliver the frame at ' + t.toFixed(3) + 's after ' +
     SEEK_MAX_ATTEMPTS + ' attempts. Rendering was stopped instead of writing an incorrect frame.');
@@ -3156,9 +3250,31 @@ for (const [type, def] of Object.entries(EFFECT_TYPES)) {
   addEffectType.appendChild(opt);
 }
 
+// The output frame rate exactly as entered, or NaN when the entry is not a
+// whole number from 1 to 120. An invalid entry is reported to the user and
+// refused by validateRender -- it is never quietly replaced by another rate.
+function outputFpsEntry() {
+  const el = document.getElementById('outputFpsInput');
+  const text = String(el.value).trim();
+  const fix = ' Enter a whole number from 1 to 120.';
+  if (el.validity && el.validity.badInput) return { fps: NaN, problem: 'Output frame rate is not a number.' + fix };
+  if (text === '') return { fps: NaN, problem: 'Output frame rate is empty.' + fix };
+  const n = Number(text);
+  if (!isFinite(n)) return { fps: NaN, problem: 'Output frame rate "' + text + '" is not a number.' + fix };
+  if (!Number.isInteger(n)) return { fps: NaN, problem: 'Output frame rate must be a whole number (got ' + text + ').' + fix };
+  if (n < 1 || n > 120) return { fps: NaN, problem: 'Output frame rate ' + n + ' is outside the supported range.' + fix };
+  return { fps: n, problem: null };
+}
+
 function currentOutputFps() {
-  const v = parseInt(document.getElementById('outputFpsInput').value, 10);
-  return (v && v > 0) ? v : 30;
+  return outputFpsEntry().fps;
+}
+
+function updateOutputFpsError() {
+  const box = document.getElementById('outputFpsError');
+  const { problem } = outputFpsEntry();
+  box.textContent = problem || '';
+  box.style.display = problem ? '' : 'none';
 }
 
 function currentTimeMap() {
@@ -3211,7 +3327,16 @@ function setBusy(value) {
   ['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
     document.getElementById(id).disabled = value;
   });
+  // The Original player is the element the renderer seeks and reads, so it is
+  // taken out of the user's hands for the duration of a render and handed back
+  // afterwards (the render's finally block always calls setBusy(false)).
+  sourceVideo.controls = !value;
+  sourceVideo.style.pointerEvents = value ? 'none' : '';
 }
+
+// Playback can still be started from outside the page controls (media keys,
+// picture-in-picture); while a render owns the element it is paused at once.
+sourceVideo.addEventListener('play', () => { if (busy) sourceVideo.pause(); });
 
 /* ---- effect list rendering ---- */
 function renderEffectList() {
@@ -3391,6 +3516,9 @@ function buildFocalPointControl(fx) {
     fx.params.focusX = M.clamp((e.clientX - rect.left) / rect.width, 0, 1);
     fx.params.focusY = M.clamp((e.clientY - rect.top) / rect.height, 0, 1);
     placeMarker();
+    // The focal point feeds the renderer, so moving it re-checks the retained
+    // preview like any other effect edit.
+    updatePreviewDownloadState();
   }
 
   let dragging = false;
@@ -3427,12 +3555,14 @@ async function renderFocalStill(fx, canvas, status) {
   try {
     const effects = EffectStack.snapshot();
     const outputFps = currentOutputFps();
+    if (!isFinite(outputFps)) { status.textContent = 'Focal preview unavailable: the output frame rate is invalid.'; return; }
     const timeMap = TimeMap.build(effects, meta.duration);
     const peak = M.clamp(fx.start + fx.duration / 2, 0, Math.max(0, meta.duration - (1 / outputFps) / 2));
     const frameIndex = Math.round(timeMap.outputTimeAt(peak) * outputFps);
 
-    await seekVideoTo(sourceVideo, peak);
-    if (token !== focalStillToken) return;
+    const stillWanted = () => token === focalStillToken && !busy;
+    await seekVideoTo(sourceVideo, peak, stillWanted);
+    if (!stillWanted()) return;
 
     const renderer = new FrameRenderer(meta.width, meta.height);
     const state = computeFrameState(effects, peak, meta.width, meta.height, frameIndex);
@@ -3483,6 +3613,7 @@ function updateOutputDurationInfo() {
   if (!meta) { cell.textContent = '—'; return; }
   const map = currentTimeMap();
   const fps = currentOutputFps();
+  if (!isFinite(fps)) { cell.textContent = map.outputDuration.toFixed(3) + ' s (frame count unavailable: the output frame rate is invalid)'; return; }
   const frames = Math.max(1, Math.round(map.outputDuration * fps));
   const changed = Math.abs(map.outputDuration - meta.duration) > 0.001;
   cell.textContent = map.outputDuration.toFixed(3) + ' s (' + frames + ' frames)' +
@@ -3499,7 +3630,10 @@ async function loadFile(file) {
   try {
     setStatus('previewStatus', '');
     setStatus('exportStatus', '');
+    // The previous clip's export link goes, and with it the last reference to
+    // its blob (RenderCache is cleared below), so its object URL is released.
     document.getElementById('downloadArea').textContent = '';
+    if (downloadObjectURL) { URL.revokeObjectURL(downloadObjectURL); downloadObjectURL = null; }
     document.getElementById('outputInfoTable').style.display = 'none';
     previewBtn.disabled = true;
     exportBtn.disabled = true;
@@ -3524,6 +3658,7 @@ async function loadFile(file) {
     Log.info('Loaded file: ' + file.name + ' type=' + (file.type || 'unknown'));
 
     meta = await Metadata.detect(file, sourceVideo);
+    updateOutputFpsError();
 
     previewBtn.disabled = false;
     exportBtn.disabled = false;
@@ -3547,10 +3682,11 @@ addEffectBtn.addEventListener('click', () => {
   refreshEffectsUI();
 });
 
-document.getElementById('outputFpsInput').addEventListener('change', () => {
+['input', 'change'].forEach((type) => document.getElementById('outputFpsInput').addEventListener(type, () => {
+  updateOutputFpsError();
   updateOutputDurationInfo();
   updatePreviewDownloadState();
-});
+}));
 
 ['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
   const el = document.getElementById(id);
@@ -3617,7 +3753,7 @@ async function runRender(kind, wrapId, barId, statusId) {
     document.getElementById(wrapId).style.display = 'block';
     document.getElementById(barId).style.width = '100%';
     Log.info(kind + ' reused the previous render of the same effect stack (nothing changed, so the frames are identical).');
-    return Object.assign({}, cached, { reused: true, elapsed: 0, warnings });
+    return Object.assign({}, cached, { reused: true, elapsed: 0, warnings, key: cacheKey, outputFps });
   }
 
   // A second <video> element decoding in the same page can, rarely, make the
@@ -3648,6 +3784,10 @@ async function runRender(kind, wrapId, barId, statusId) {
     });
     result.elapsed = (performance.now() - startedAt) / 1000;
     result.warnings = warnings;
+    // The identity of what was rendered: the inputs snapshotted above, never
+    // the settings as they stand when the render finishes.
+    result.key = cacheKey;
+    result.outputFps = outputFps;
     RenderCache.set(cacheKey, { blob: result.blob, frames: result.frames, duration: result.duration });
     return result;
   } catch (err) {
@@ -3767,10 +3907,12 @@ previewBtn.addEventListener('click', async () => {
   }
 
   // Keep the exact blob the pipeline produced. Preview plays it, Download writes
-  // it out, and Export reuses it from RenderCache under the same key.
+  // it out, and Export reuses it from RenderCache under the same key. The key is
+  // the one the render started with: settings changed while it ran must leave
+  // this preview marked stale, not relabel it as the new settings.
   previewRender = {
     blob: result.blob,
-    key: currentRenderKey(),
+    key: result.key,
     name: outputFileName(),
     frames: result.frames,
     duration: result.duration,
@@ -3820,7 +3962,7 @@ exportBtn.addEventListener('click', async () => {
   document.getElementById('outputInfoTable').style.display = '';
   document.getElementById('outResolution').textContent = meta.width + ' x ' + meta.height + ' px (unchanged from source)';
   document.getElementById('outDuration').textContent = result.duration.toFixed(3) + ' s';
-  document.getElementById('outFrames').textContent = result.frames + ' @ ' + currentOutputFps() + ' fps';
+  document.getElementById('outFrames').textContent = result.frames + ' @ ' + result.outputFps + ' fps';
   document.getElementById('outSize').textContent = formatBytes(result.blob.size);
   document.getElementById('outRenderTime').textContent = result.reused
     ? 'reused the preview render (0 s)' : result.elapsed.toFixed(1) + ' s';
