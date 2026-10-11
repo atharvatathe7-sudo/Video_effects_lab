@@ -125,11 +125,6 @@
     border-radius: 8px; background: #fbfcfd;
   }
   .editor.empty { color: var(--muted); font-size: 12.5px; }
-  a.download-link {
-    display: inline-block; margin-top: 10px; padding: 8px 16px;
-    border-radius: 6px; background: var(--ok); color: #fff;
-    text-decoration: none; font-size: 13px;
-  }
   #logBox {
     font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
     font-size: 11.5px; background: #0f1115; color: #d7dbe0;
@@ -222,39 +217,15 @@
       </thead>
       <tbody id="effectListBody"></tbody>
     </table>
-    <div id="effectListEmpty" class="empty-msg">No effects yet. Add one above &mdash; with no effects, export simply re-encodes the source.</div>
+    <div id="effectListEmpty" class="empty-msg">No effects yet. Add one above &mdash; with no effects, the render simply re-encodes the source.</div>
 
     <div class="editor empty" id="effectEditor">Select an effect in the list to edit it.</div>
     <p class="hint">All effect times are in <strong>source video time</strong> (the timeline of your original clip), so they stay anchored to the content even when a Speed Ramp changes the output length.</p>
   </section>
 
-  <!-- ================= 3. HOOK OVERLAY ================= -->
-  <section class="card">
-    <h2><span class="num">3</span>Hook Overlay</h2>
-    <div class="checkbox-row" style="margin-bottom:10px;">
-      <input type="checkbox" id="hookEnabled">
-      <label for="hookEnabled">Burn a hook into the start of the video</label>
-    </div>
-    <div class="row">
-      <div class="field" style="flex:1 1 320px;">
-        <label for="hookText">Hook text</label>
-        <input type="text" id="hookText" maxlength="120" placeholder="He sacrificed the queen." style="width:100%;">
-      </div>
-      <div class="field">
-        <label for="hookDuration">Duration (s)</label>
-        <input type="number" id="hookDuration" min="0.1" max="10" step="0.1" value="1.2">
-      </div>
-      <div class="field">
-        <label for="hookFontPct">Font size (% of frame)</label>
-        <input type="number" id="hookFontPct" min="2" max="25" step="0.5" value="9">
-      </div>
-    </div>
-    <p class="hint" id="hookHint"></p>
-  </section>
-
   <!-- ================= 3. PREVIEW ================= -->
   <section class="card">
-    <h2><span class="num">4</span>Preview</h2>
+    <h2><span class="num">3</span>Preview</h2>
     <div class="videos">
       <div class="video-block">
         <h3>Original</h3>
@@ -269,35 +240,15 @@
     <div class="row" style="margin-top:12px;">
       <button id="previewBtn" disabled>Generate Preview</button>
       <button id="downloadPreviewBtn" class="secondary" disabled>Download WebM</button>
-      <span class="hint" style="margin:0;">Generate Preview renders the finished video. What you watch above is the file you download — Export uses the same render too.</span>
+      <span class="hint" style="margin:0;">Generate Preview renders the finished video. What you watch above is the file you download.</span>
     </div>
     <p class="hint" id="previewStaleHint" style="display:none;"></p>
     <div class="progress-wrap" id="previewProgressWrap" style="display:none;">
       <div class="progress-bar" id="previewProgressBar"></div>
     </div>
     <div class="status" id="previewStatus"></div>
-  </section>
-
-  <!-- ================= 4. EXPORT ================= -->
-  <section class="card">
-    <h2><span class="num">5</span>Export</h2>
-    <div class="row">
-      <button id="exportBtn" disabled>Export as WebM</button>
-    </div>
-    <div class="progress-wrap" id="exportProgressWrap" style="display:none;">
-      <div class="progress-bar" id="exportProgressBar"></div>
-    </div>
-    <div class="status" id="exportStatus"></div>
-    <div id="downloadArea"></div>
-    <table class="meta" id="outputInfoTable" style="margin-top:12px; display:none;">
-      <tr><td class="k">Output resolution</td><td id="outResolution">&mdash;</td></tr>
-      <tr><td class="k">Output duration</td><td id="outDuration">&mdash;</td></tr>
-      <tr><td class="k">Output frames</td><td id="outFrames">&mdash;</td></tr>
-      <tr><td class="k">File size</td><td id="outSize">&mdash;</td></tr>
-      <tr><td class="k">Render time</td><td id="outRenderTime">&mdash;</td></tr>
-    </table>
     <p class="limitations" style="margin-top:14px;">
-      <strong>Known limitations:</strong> Audio is not preserved in the exported file (video-only WebM/VP8 track).
+      <strong>Known limitations:</strong> Audio is not preserved in the downloaded file (video-only WebM/VP8 track).
       Frame rate is detected by sampling playback and rounded to a whole number for the output frame grid, so it may
       not exactly equal a source's true encoded rate (especially for variable-frame-rate sources).
       Requires a Chromium-based browser with WebCodecs (VideoEncoder) support.
@@ -1710,68 +1661,6 @@ function mergeTemporalTaps(a, b) {
 }
 
 /* =========================================================================
-   MODULE: Hook Overlay (V1)
-   A single short hook burned into the top of the clip. Deliberately NOT an
-   effect-stack item: it is a final screen overlay, so it never takes part in
-   camera geometry, overscan, frame history or any of the blur/glitch stages.
-   It is governed by OUTPUT time, so a Freeze or Speed Ramp cannot stretch or
-   shift it -- 1.2s of hook is 1.2s of finished video.
-   ========================================================================= */
-const HOOK_START = 0;            // V1: the hook always opens the clip
-const HOOK_VERTICAL = 0.58;      // fraction of canvas height, just below centre
-const HOOK_POP_SCALE = 0.18;     // how much larger the first frames are
-const HOOK_POP_SECONDS = 0.12;   // how long the snap takes to settle
-const HOOK_SAFE_WIDTH = 0.90;    // text is fitted inside this fraction of width
-const HOOK_FONT_STACK = '900 {px}px system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
-
-const HOOK_DEFAULTS = { enabled: false, text: '', duration: 1.2, fontPct: 9 };
-
-// Pure function of output time and canvas size: no clock, no randomness.
-// Returns null when the hook should not be drawn on this frame.
-function computeHookState(hook, outputTime, width, height) {
-  if (!hook || !hook.enabled) return null;
-  const text = String(hook.text === undefined ? '' : hook.text);
-  if (!text.trim()) return null;
-  const duration = Number(hook.duration);
-  if (!(duration > 0)) return null;
-
-  const elapsed = outputTime - HOOK_START;
-  if (elapsed < 0 || elapsed >= duration) return null;
-
-  // Snap entrance: starts slightly oversized and settles to 100%.
-  const popWindow = Math.min(HOOK_POP_SECONDS, duration * 0.25);
-  const popScale = popWindow > 0 && elapsed < popWindow
-    ? 1 + HOOK_POP_SCALE * (1 - M.smoothstep(elapsed / popWindow))
-    : 1;
-
-  const pct = Number(hook.fontPct);
-  const basePx = (isFinite(pct) ? pct : HOOK_DEFAULTS.fontPct) / 100 * Math.min(width, height);
-
-  return {
-    text,
-    basePx: Math.max(1, basePx),
-    popScale,
-    x: width / 2,
-    y: height * HOOK_VERTICAL,
-    maxWidth: width * HOOK_SAFE_WIDTH,
-  };
-}
-
-// Shrinks the font until the text fits the safe width. Text is never truncated.
-// measureText is deterministic for a given font/size/string, so preview and
-// export fit identically.
-function fitHookFontPx(ctx, text, basePx, maxWidth) {
-  let px = basePx;
-  for (let i = 0; i < 8; i++) {
-    ctx.font = HOOK_FONT_STACK.replace('{px}', String(px));
-    const w = ctx.measureText(text).width;
-    if (!(w > maxWidth) || !(w > 0)) break;
-    px = px * (maxWidth / w);
-  }
-  return px;
-}
-
-/* =========================================================================
    MODULE: Time map (Speed Ramp)
    Builds an exact, strictly increasing piecewise-linear source<->output time
    mapping from the enabled speed ramps. Output frame timestamps are always
@@ -1935,7 +1824,7 @@ const EffectStack = (() => {
    MODULE: Validation -- invalid settings must never silently produce
    corrupt output, so rendering refuses to start instead.
    ========================================================================= */
-function validateRender(effects, meta, outputFps, timeMap, hook) {
+function validateRender(effects, meta, outputFps, timeMap) {
   const errors = [];
   const warnings = [];
   if (!meta) { errors.push('No video is loaded.'); return { errors, warnings }; }
@@ -1992,15 +1881,6 @@ function validateRender(effects, meta, outputFps, timeMap, hook) {
         }
       }
     }
-  }
-
-  if (hook && hook.enabled) {
-    if (!String(hook.text === undefined ? '' : hook.text).trim()) {
-      warnings.push('Hook Overlay is on but the text is empty, so nothing will be drawn.');
-    }
-    if (!(Number(hook.duration) > 0)) errors.push('Hook Overlay: duration must be greater than zero.');
-    const pct = Number(hook.fontPct);
-    if (!isFinite(pct) || pct < 2 || pct > 25) errors.push('Hook Overlay: font size must be between 2% and 25% of the frame.');
   }
 
   if (timeMap) {
@@ -2358,7 +2238,7 @@ class FrameRenderer {
   }
 
   // Renders one output frame and returns the canvas that should be encoded.
-  render(videoElement, state, frameIndex, hookState) {
+  render(videoElement, state, frameIndex) {
     const W = this.width, H = this.height;
     const gctx = this.geoCtx;
 
@@ -2439,50 +2319,7 @@ class FrameRenderer {
       this._pixelPass(ctx, state, frameIndex || 0);
     }
 
-    // --- hook overlay: the very last thing drawn, so the text stays crisp no
-    // matter what the frame underneath was put through ---
-    if (hookState) this._drawHook(ctx, hookState);
-
     return canvas;
-  }
-
-  // Heavy white sans with a dark outline and drop shadow -- a social-video hook
-  // rather than a subtitle. Fully deterministic given the hook state.
-  _drawHook(ctx, hook) {
-    ctx.save();
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = 'source-over';
-
-    const px = fitHookFontPx(ctx, hook.text, hook.basePx, hook.maxWidth);
-    ctx.font = HOOK_FONT_STACK.replace('{px}', String(px));
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    ctx.miterLimit = 2;
-
-    // Snap entrance scales about the text anchor so it stays centred.
-    if (hook.popScale !== 1) {
-      ctx.translate(hook.x, hook.y);
-      ctx.scale(hook.popScale, hook.popScale);
-      ctx.translate(-hook.x, -hook.y);
-    }
-
-    // Outline carries the shadow; the fill is then drawn clean on top.
-    ctx.shadowColor = 'rgba(0,0,0,0.55)';
-    ctx.shadowBlur = px * 0.25;
-    ctx.shadowOffsetY = px * 0.06;
-    ctx.lineWidth = px * 0.16;
-    ctx.strokeStyle = '#000000';
-    ctx.strokeText(hook.text, hook.x, hook.y);
-
-    ctx.shadowColor = 'rgba(0,0,0,0)';
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillText(hook.text, hook.x, hook.y);
-
-    ctx.restore();
   }
 
   // Turns a normalised weight list into the successive-compositing alphas that
@@ -3124,7 +2961,7 @@ function estimateBitrate(width, height, fps) {
   return Math.max(500000, Math.round(width * height * fps * bitsPerPixelPerFrame));
 }
 
-async function renderPipeline({ video, meta, effects, outputFps, timeMap, hook, onProgress }) {
+async function renderPipeline({ video, meta, effects, outputFps, timeMap, onProgress }) {
   if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
     throw new Error('WebCodecs VideoEncoder is not available in this browser. Video Effects Lab requires a recent desktop Chrome.');
   }
@@ -3187,10 +3024,7 @@ async function renderPipeline({ video, meta, effects, outputFps, timeMap, hook, 
       await seekVideoTo(video, sourceTime);
 
       const state = computeFrameState(effects, sourceTime, width, height, i);
-      // The hook is a screen overlay: it follows output time, so a Freeze or
-      // Speed Ramp never stretches or shifts it.
-      const hookState = computeHookState(hook, outputTime, width, height);
-      const canvas = renderer.render(video, state, i, hookState);
+      const canvas = renderer.render(video, state, i);
 
       if (encoder.encodeQueueSize > 8) {
         await new Promise((resolve) => {
@@ -3222,7 +3056,6 @@ const sourceVideo = document.getElementById('sourceVideo');
 const processedVideo = document.getElementById('processedVideo');
 const fileInput = document.getElementById('fileInput');
 const previewBtn = document.getElementById('previewBtn');
-const exportBtn = document.getElementById('exportBtn');
 const addEffectBtn = document.getElementById('addEffectBtn');
 const addEffectType = document.getElementById('addEffectType');
 
@@ -3234,7 +3067,6 @@ let currentSourceKey = null;
 let sourceLoadCounter = 0;
 let currentObjectURL = null;
 let processedObjectURL = null;
-let downloadObjectURL = null;
 // What the Edited player is currently showing. This is NOT a second cache: it
 // renders nothing and decides nothing, it just records which render is on screen
 // so Download can hand back that exact blob and so we can tell when the settings
@@ -3281,42 +3113,9 @@ function currentTimeMap() {
   return TimeMap.build(EffectStack.all(), meta ? meta.duration : 0);
 }
 
-/* ---- Hook Overlay UI state ---- */
-function currentHook() {
-  const duration = parseFloat(document.getElementById('hookDuration').value);
-  const fontPct = parseFloat(document.getElementById('hookFontPct').value);
-  return {
-    enabled: document.getElementById('hookEnabled').checked,
-    text: document.getElementById('hookText').value,
-    duration: isFinite(duration) ? duration : HOOK_DEFAULTS.duration,
-    fontPct: isFinite(fontPct) ? fontPct : HOOK_DEFAULTS.fontPct,
-  };
-}
-
-function updateHookHint() {
-  // The hook feeds the renderer, so any edit to it can date the retained preview.
-  updatePreviewDownloadState();
-  const hint = document.getElementById('hookHint');
-  const hook = currentHook();
-  if (!hook.enabled) {
-    hint.textContent = 'Off. When enabled the hook opens the video, centred and just below the middle, ' +
-      'and is drawn after every effect so it stays sharp.';
-    return;
-  }
-  if (!hook.text.trim()) {
-    hint.textContent = 'Enter the hook text — nothing is drawn while it is empty.';
-    return;
-  }
-  const px = meta ? Math.round(hook.fontPct / 100 * Math.min(meta.width, meta.height)) : null;
-  hint.textContent = 'Shows from 0.00s to ' + hook.duration.toFixed(2) + 's of the finished video' +
-    (px ? ', about ' + px + 'px tall at this resolution' : '') +
-    '. Long text is scaled down to fit, never cut.';
-}
-
 function setBusy(value) {
   busy = value;
   previewBtn.disabled = value || !meta;
-  exportBtn.disabled = value || !meta;
   addEffectBtn.disabled = value || !meta;
   fileInput.disabled = value;
   // Held down while a render runs; the freshness check re-enables it afterwards
@@ -3324,9 +3123,6 @@ function setBusy(value) {
   if (value) document.getElementById('downloadPreviewBtn').disabled = true;
   else updatePreviewDownloadState();
   document.querySelectorAll('#effectEditor input, #effectEditor select').forEach((el) => { el.disabled = value; });
-  ['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
-    document.getElementById(id).disabled = value;
-  });
   // The Original player is the element the renderer seeks and reads, so it is
   // taken out of the user's hands for the duration of a render and handed back
   // afterwards (the render's finally block always calls setBusy(false)).
@@ -3566,8 +3362,7 @@ async function renderFocalStill(fx, canvas, status) {
 
     const renderer = new FrameRenderer(meta.width, meta.height);
     const state = computeFrameState(effects, peak, meta.width, meta.height, frameIndex);
-    const hookState = computeHookState(currentHook(), timeMap.outputTimeAt(peak), meta.width, meta.height);
-    const rendered = renderer.render(sourceVideo, state, frameIndex, hookState);
+    const rendered = renderer.render(sourceVideo, state, frameIndex);
 
     const ctx = canvas.getContext('2d', { alpha: false });
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -3629,14 +3424,7 @@ fileInput.addEventListener('change', async (e) => {
 async function loadFile(file) {
   try {
     setStatus('previewStatus', '');
-    setStatus('exportStatus', '');
-    // The previous clip's export link goes, and with it the last reference to
-    // its blob (RenderCache is cleared below), so its object URL is released.
-    document.getElementById('downloadArea').textContent = '';
-    if (downloadObjectURL) { URL.revokeObjectURL(downloadObjectURL); downloadObjectURL = null; }
-    document.getElementById('outputInfoTable').style.display = 'none';
     previewBtn.disabled = true;
-    exportBtn.disabled = true;
     addEffectBtn.disabled = true;
 
     if (processedObjectURL) { URL.revokeObjectURL(processedObjectURL); processedObjectURL = null; }
@@ -3661,7 +3449,6 @@ async function loadFile(file) {
     updateOutputFpsError();
 
     previewBtn.disabled = false;
-    exportBtn.disabled = false;
     addEffectBtn.disabled = false;
     refreshEffectsUI();
     if (EffectStack.all().length) Log.info('Existing effect stack kept for the new video; check the warnings in the list.');
@@ -3688,24 +3475,16 @@ addEffectBtn.addEventListener('click', () => {
   updatePreviewDownloadState();
 }));
 
-['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct'].forEach((id) => {
-  const el = document.getElementById(id);
-  el.addEventListener('input', updateHookHint);
-  el.addEventListener('change', updateHookHint);
-});
-
-/* ---- shared render driver for Preview and Export ---- */
+/* ---- render driver for Generate Preview ---- */
 /* ---- Render reuse ----
    The renderer is a pure function of exactly these inputs: the source clip, the
-   effect stack, the hook, and the output frame rate. Everything downstream --
-   the time map, every effect evaluator, the frame history, the encoder settings
-   -- is derived from them deterministically, which is why Preview and Export
-   already produce byte-identical files (the parity tests assert it every run).
+   effect stack and the output frame rate. Everything downstream -- the time map,
+   every effect evaluator, the frame history, the encoder settings -- is derived
+   from them deterministically, so the same inputs always give the same file.
 
-   So rendering the same inputs twice is pure redundant work, and the commonest
-   flow in the app does exactly that: press Generate Preview, look at it, then
-   press Export and render all over again. Holding the last result and handing it
-   back on an exact input match removes that second render entirely. The returned
+   Rendering the same inputs twice is therefore pure redundant work. Holding the
+   last result and handing it back on an exact input match means pressing
+   Generate Preview again with nothing changed renders nothing. The returned
    bytes are the same bytes the render would have produced -- nothing is
    approximated, and any change to any input misses the key and re-renders.
 
@@ -3714,13 +3493,12 @@ const RenderCache = (() => {
   let key = null;
   let value = null;
   return {
-    keyFor(sourceKey, effects, hook, outputFps, m) {
+    keyFor(sourceKey, effects, outputFps, m) {
       if (!m) return null;
       return JSON.stringify({
         src: sourceKey,
         w: m.width, h: m.height, d: m.duration,
         fps: outputFps,
-        hook,
         fx: effects.map((f) => ({ t: f.type, s: f.start, u: f.duration, e: !!f.enabled, p: f.params })),
       });
     },
@@ -3734,9 +3512,7 @@ async function runRender(kind, wrapId, barId, statusId) {
   const effects = EffectStack.snapshot();
   const outputFps = currentOutputFps();
   const timeMap = TimeMap.build(effects, meta ? meta.duration : 0);
-  // Snapshot the hook too, so edits during a render cannot change it mid-way.
-  const hook = currentHook();
-  const { errors, warnings } = validateRender(effects, meta, outputFps, timeMap, hook);
+  const { errors, warnings } = validateRender(effects, meta, outputFps, timeMap);
 
   if (errors.length) {
     setStatus(statusId, 'Cannot render:\n  • ' + errors.join('\n  • '), 'error');
@@ -3747,7 +3523,7 @@ async function runRender(kind, wrapId, barId, statusId) {
 
   // Identical inputs to the last completed render? Then the frames would be
   // identical too, so hand back what was already produced.
-  const cacheKey = RenderCache.keyFor(currentSourceKey, effects, hook, outputFps, meta);
+  const cacheKey = RenderCache.keyFor(currentSourceKey, effects, outputFps, meta);
   const cached = RenderCache.get(cacheKey);
   if (cached) {
     document.getElementById(wrapId).style.display = 'block';
@@ -3758,7 +3534,7 @@ async function runRender(kind, wrapId, barId, statusId) {
 
   // A second <video> element decoding in the same page can, rarely, make the
   // source element hand drawImage() a stale frame -- reproduced as a one-frame
-  // difference when an export follows a preview. The processed preview is
+  // difference when one render follows another. The processed preview is
   // therefore detached for the duration of the render and restored afterwards.
   const restoreProcessedPreview = await quiesceProcessedPreview();
 
@@ -3779,7 +3555,6 @@ async function runRender(kind, wrapId, barId, statusId) {
       effects,
       outputFps,
       timeMap,
-      hook,
       onProgress: (frac) => { bar.style.width = (frac * 100).toFixed(1) + '%'; },
     });
     result.elapsed = (performance.now() - startedAt) / 1000;
@@ -3815,11 +3590,10 @@ async function quiesceProcessedPreview() {
   };
 }
 
-/* ---- The rendered result, once, shared by Preview, Download and Export ----
+/* ---- The rendered result, once, shared by Preview and Download ----
    Generate Preview runs the pipeline and keeps the WebM blob it produced. The
-   player shows that blob, Download hands back that same blob, and Export reuses
-   it through RenderCache whenever the inputs still match. Nothing here re-renders
-   or re-encodes anything. */
+   player shows that blob and Download hands back that same blob. Nothing here
+   re-renders or re-encodes anything. */
 
 function outputFileName() {
   const baseName = (meta && meta.name ? meta.name : 'video').replace(/\.[^/.]+$/, '');
@@ -3831,7 +3605,7 @@ function outputFileName() {
 // preview still represents the current settings.
 function currentRenderKey() {
   if (!meta) return null;
-  return RenderCache.keyFor(currentSourceKey, EffectStack.snapshot(), currentHook(), currentOutputFps(), meta);
+  return RenderCache.keyFor(currentSourceKey, EffectStack.snapshot(), currentOutputFps(), meta);
 }
 
 function releasePreviewDownloadURL() {
@@ -3906,10 +3680,10 @@ previewBtn.addEventListener('click', async () => {
     return;
   }
 
-  // Keep the exact blob the pipeline produced. Preview plays it, Download writes
-  // it out, and Export reuses it from RenderCache under the same key. The key is
-  // the one the render started with: settings changed while it ran must leave
-  // this preview marked stale, not relabel it as the new settings.
+  // Keep the exact blob the pipeline produced. Preview plays it and Download
+  // writes it out. The key is the one the render started with: settings changed
+  // while it ran must leave this preview marked stale, not relabel it as the new
+  // settings.
   previewRender = {
     blob: result.blob,
     key: result.key,
@@ -3938,53 +3712,15 @@ previewBtn.addEventListener('click', async () => {
   Log.info('Preview rendered: ' + result.frames + ' frames, ' + formatBytes(result.blob.size) + ' in ' + result.elapsed.toFixed(1) + 's');
 });
 
-exportBtn.addEventListener('click', async () => {
-  if (busy || !meta) return;
-  document.getElementById('downloadArea').textContent = '';
-  const result = await runRender('export', 'exportProgressWrap', 'exportProgressBar', 'exportStatus');
-  if (!result) return;
-
-  // Release the previous export's URL; its link has already been removed above.
-  if (downloadObjectURL) URL.revokeObjectURL(downloadObjectURL);
-  const url = URL.createObjectURL(result.blob);
-  downloadObjectURL = url;
-  const baseName = (meta.name || 'video').replace(/\.[^/.]+$/, '');
-  const outName = baseName + '_effects.webm';
-
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = outName;
-  link.className = 'download-link';
-  link.textContent = 'Download ' + outName + ' (' + formatBytes(result.blob.size) + ')';
-  document.getElementById('downloadArea').appendChild(link);
-  link.click(); // auto-save; the link stays for a manual re-download
-
-  document.getElementById('outputInfoTable').style.display = '';
-  document.getElementById('outResolution').textContent = meta.width + ' x ' + meta.height + ' px (unchanged from source)';
-  document.getElementById('outDuration').textContent = result.duration.toFixed(3) + ' s';
-  document.getElementById('outFrames').textContent = result.frames + ' @ ' + result.outputFps + ' fps';
-  document.getElementById('outSize').textContent = formatBytes(result.blob.size);
-  document.getElementById('outRenderTime').textContent = result.reused
-    ? 'reused the preview render (0 s)' : result.elapsed.toFixed(1) + ' s';
-
-  setStatus('exportStatus', (result.reused
-    ? 'Export complete — reused the identical preview render, so nothing had to be rendered again. '
-    : 'Export complete in ' + result.elapsed.toFixed(1) + 's. ') +
-    'Download started automatically (use the link below if it did not). Audio is not preserved.' +
-    (result.warnings.length ? '\nWarnings:\n  • ' + result.warnings.join('\n  • ') : ''), 'ok');
-  Log.info('Export rendered: ' + result.frames + ' frames, ' + formatBytes(result.blob.size) + ' in ' + result.elapsed.toFixed(1) + 's -> ' + outName);
-});
-
 /* ---- startup ---- */
 (function checkSupport() {
   if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
     Log.error('WebCodecs (VideoEncoder/VideoFrame) is not available. This browser cannot run Video Effects Lab. Use a recent desktop Google Chrome.');
-    setStatus('exportStatus', 'WebCodecs is not available in this browser. Please use a recent desktop Google Chrome.', 'error');
+    setStatus('previewStatus', 'WebCodecs is not available in this browser. Please use a recent desktop Google Chrome.', 'error');
   } else {
     Log.info('WebCodecs available. Ready.');
   }
   refreshEffectsUI();
-  updateHookHint();
 })();
 
 /* Exposed for debugging and for the automated test harness. Everything here is
@@ -3995,16 +3731,6 @@ window.VEL = {
   clearRenderCache: () => RenderCache.clear(),
   coverScaleFor, hash3, mergeTemporalTaps, seekVideoTo,
   buildRadialStreak, buildDirectionalBlur,
-  computeHookState, fitHookFontPx, HOOK_DEFAULTS,
-  HOOK_START, HOOK_VERTICAL, HOOK_SAFE_WIDTH, HOOK_POP_SECONDS, HOOK_POP_SCALE,
-  getHook: currentHook,
-  setHook(h) {
-    document.getElementById('hookEnabled').checked = !!h.enabled;
-    document.getElementById('hookText').value = h.text === undefined ? '' : h.text;
-    if (h.duration !== undefined) document.getElementById('hookDuration').value = String(h.duration);
-    if (h.fontPct !== undefined) document.getElementById('hookFontPct').value = String(h.fontPct);
-    updateHookHint();
-  },
   getMeta: () => meta,
   getOutputFps: currentOutputFps,
   setEffects(list) { EffectStack.replaceAll(list); refreshEffectsUI(); },

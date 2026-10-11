@@ -246,11 +246,11 @@ async function installReadProbe(page) {
     const small = document.createElement('canvas');
     const sx = small.getContext('2d', { willReadFrequently: true });
     window.__reads = null;
-    V.FrameRenderer.prototype.render = function (video, state, i, hook) {
+    V.FrameRenderer.prototype.render = function (video, state, i) {
       const rec = window.__reads && video instanceof HTMLVideoElement;
       let ts = null, ct = null;
       if (rec) { ct = video.currentTime; try { const f = new VideoFrame(video); ts = f.timestamp; f.close(); } catch (e) { ts = -1; } }
-      const out = orig.call(this, video, state, i, hook);
+      const out = orig.call(this, video, state, i);
       if (rec) {
         const w = out.width, h = out.height, bandH = Math.round(h * 0.18);
         small.width = w; small.height = bandH;
@@ -416,7 +416,7 @@ test('D1 mid-render settings changes never relabel the finished preview', async 
   note('effect order cannot be changed in the UI (the stage order is fixed by design), so no reorder case exists');
 });
 
-test('Preview/Download/Export share one blob; unchanged settings never re-render', async () => {
+test('Preview and Download share one blob; unchanged settings never re-render', async () => {
   const page = await openApp();
   await loadClip(page, FIXTURE);
   await setEffects(page, [fx('punchZoom', 0.5, 0.6), fx('chromaAberration', 1.2, 0.8)]);
@@ -433,10 +433,20 @@ test('Preview/Download/Export share one blob; unchanged settings never re-render
   await preview(page);
   check((await encCount(page)) === c1, 'second preview with unchanged settings reuses the render');
   check((await previewBytes(page)).equals(shown), 'reused preview is the same bytes');
-  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('#exportBtn')]);
-  const exp = fs.readFileSync(await dl.path());
-  check(exp.equals(shown) && (await encCount(page)) === c1, 'Export with unchanged settings hands out the same bytes without rendering');
-  note('preview ' + sha(shown) + ' == download x2 == export; encoder constructions: 1');
+  // the real button, clicked by the user, writes the same file
+  const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 60000 }), page.click('#downloadPreviewBtn')]);
+  const clicked = fs.readFileSync(await dl.path());
+  check(clicked.equals(shown) && /_effects\.webm$/.test(dl.suggestedFilename()), 'Download WebM button saves the previewed bytes', dl.suggestedFilename());
+  check((await encCount(page)) === c1, 'the button download constructs no encoder');
+  // the preview player plays the rendered file
+  const play = await page.evaluate(async () => {
+    const v = document.getElementById('processedVideo');
+    if (v.readyState < 2) await new Promise((r) => { v.addEventListener('loadeddata', r, { once: true }); setTimeout(r, 15000); });
+    const t0 = v.currentTime; await v.play(); await new Promise((r) => setTimeout(r, 400)); const advanced = v.currentTime > t0; v.pause();
+    return { advanced, w: v.videoWidth, h: v.videoHeight, dur: v.duration };
+  });
+  check(play.advanced && play.w === W && play.h === H && Math.abs(play.dur - 4) < 0.1, 'the Preview player plays the rendered video', play);
+  note('preview ' + sha(shown) + ' == download x3 (2 handler, 1 button click); plays at ' + play.w + 'x' + play.h + '; encoder constructions: 1');
   await page.close();
 });
 
@@ -695,7 +705,7 @@ test('all 27 effects render through the real pipeline and change the output', as
   await page.close();
 });
 
-test('export failure cleans up: UI unlocked, player restored, retained preview kept', async () => {
+test('preview failure cleans up: UI unlocked, player restored, old preview kept but not downloadable', async () => {
   const page = await openApp();
   await loadClip(page, FIXTURE);
   await setEffects(page, [fx('vignette', 0.2, 3.0)]);
@@ -704,22 +714,26 @@ test('export failure cleans up: UI unlocked, player restored, retained preview k
   await setEffects(page, [fx('vignette', 0.2, 3.0), fx('shake', 1, 1)]);
   await page.evaluate(() => {
     window.__realEncode = VideoEncoder.prototype.encode; let n = 0;
-    VideoEncoder.prototype.encode = function (...a) { if (++n === 40) throw new Error('injected export failure'); return window.__realEncode.apply(this, a); };
+    VideoEncoder.prototype.encode = function (...a) { if (++n === 40) throw new Error('injected render failure'); return window.__realEncode.apply(this, a); };
   });
-  await page.click('#exportBtn');
-  await page.waitForFunction(() => /failed|complete/.test(document.getElementById('exportStatus').textContent) && !window.VEL.isBusy(), null, { timeout: 120000 });
+  await startPreview(page);
+  const st = await waitPreviewDone(page);
   const s = await page.evaluate(() => {
     const v = document.getElementById('sourceVideo');
-    return { status: document.getElementById('exportStatus').textContent, busy: window.VEL.isBusy(), controls: v.controls, pointer: getComputedStyle(v).pointerEvents,
-      exportBtn: !document.getElementById('exportBtn').disabled, previewBtn: !document.getElementById('previewBtn').disabled, src: !!document.getElementById('processedVideo').getAttribute('src'),
-      links: document.querySelectorAll('#downloadArea a').length };
+    return { busy: window.VEL.isBusy(), controls: v.controls, pointer: getComputedStyle(v).pointerEvents,
+      previewBtn: !document.getElementById('previewBtn').disabled, file: !document.getElementById('fileInput').disabled,
+      src: !!document.getElementById('processedVideo').getAttribute('src') };
   });
-  check(/injected export failure/.test(s.status), 'export failure reported', s.status);
-  check(!s.busy && s.controls && s.pointer !== 'none' && s.exportBtn && s.previewBtn, 'UI and player unlocked after the failure', s);
-  check(s.src && (await previewBytes(page)).equals(shown), 'processed preview restored with the same blob', s);
-  check(s.links === 0, 'no download link offered for the failed export', s.links);
+  check(/failed/.test(st) && /injected render failure/.test(st), 'render failure reported', st);
+  check(!s.busy && s.controls && s.pointer !== 'none' && s.previewBtn && s.file, 'UI and player unlocked after the failure', s);
+  check(s.src && (await previewBytes(page)).equals(shown), 'previous preview reattached with the same blob', s);
+  const d = await dlState(page);
+  check(d.disabled && d.stale, 'the previous preview no longer matches the settings, so Download stays off', d);
+  check((await tryDownload(page)) === null, 'nothing downloadable after the failed render');
   await page.evaluate(() => { VideoEncoder.prototype.encode = window.__realEncode; });
-  note('export failure: status reported, controls restored, preview blob reattached, no link');
+  await preview(page);
+  check(!(await dlState(page)).disabled, 'a successful preview afterwards re-enables Download');
+  note('render failure: status reported, controls restored, old preview reattached but stale, fresh preview downloadable');
   await page.close();
 });
 
@@ -786,50 +800,67 @@ test('D6 output FPS: whole numbers 1-120 accepted, everything else refused with 
   await page.close();
 });
 
-test('D7 loading another clip releases the previous export, and only it', async () => {
+test('D7 loading another clip releases the previous preview and download URLs, and only them', async () => {
   const page = await openApp();
   await page.evaluate(() => {
-    window.__revoked = [];
-    const real = URL.revokeObjectURL.bind(URL);
-    URL.revokeObjectURL = (u) => { window.__revoked.push(u); real(u); };
+    window.__revoked = []; window.__created = [];
+    const realRevoke = URL.revokeObjectURL.bind(URL), realCreate = URL.createObjectURL.bind(URL);
+    URL.revokeObjectURL = (u) => { window.__revoked.push(u); realRevoke(u); };
+    URL.createObjectURL = (o) => { const u = realCreate(o); window.__created.push(u); return u; };
   });
   const urlLive = (u) => page.evaluate(async (u) => { try { const r = await fetch(u); return r.ok; } catch (e) { return false; } }, u);
-  const exportNow = async () => {
-    await page.evaluate(() => window.VEL.clearRenderCache());
-    const [dl] = await Promise.all([page.waitForEvent('download', { timeout: 120000 }), page.click('#exportBtn')]);
-    await dl.path();
-    await page.waitForFunction(() => /Export complete|failed/.test(document.getElementById('exportStatus').textContent) && !window.VEL.isBusy(), null, { timeout: 120000 });
-    return page.evaluate(() => { const a = document.querySelector('#downloadArea a'); return a ? a.href : null; });
-  };
   await loadClip(page, FIXTURE, 'first.webm');
   await setEffects(page, [fx('vignette', 0.2, 3.0)]);
-  const first = await exportNow();
-  check(first && await urlLive(first), 'export link is live');
-  const second = await exportNow();
-  check(second !== first && await urlLive(second) && !(await urlLive(first)), 're-export replaces the previous export URL (existing behaviour)');
   await preview(page);
-  const before = await page.evaluate(() => ({ src: document.getElementById('sourceVideo').src, revoked: window.__revoked.slice() }));
+  const processedURL = await page.evaluate(() => document.getElementById('processedVideo').getAttribute('src'));
+  const createdBefore = await page.evaluate(() => window.__created.length);
+  check(await tryDownload(page), 'preview downloads');
+  check(await tryDownload(page), 'preview downloads again');
+  const made = await page.evaluate((n) => window.__created.slice(n), createdBefore);
+  check(made.length === 1, 'repeated downloads reuse one object URL', made);
+  const downloadURL = made[0];
+  check(await urlLive(processedURL) && await urlLive(downloadURL), 'preview and download URLs are live while the preview is current');
+  const before = await page.evaluate(() => ({ src: document.getElementById('sourceVideo').src, revoked: window.__revoked.length }));
 
   await loadClip(page, FIXTURE, 'second.webm');
   const after = await page.evaluate(() => ({
     src: document.getElementById('sourceVideo').src, revoked: window.__revoked.slice(),
-    links: document.querySelectorAll('#downloadArea a').length,
     processed: document.getElementById('processedVideo').getAttribute('src'),
     dl: document.getElementById('downloadPreviewBtn').disabled,
     ready: document.getElementById('sourceVideo').readyState,
   }));
-  const newlyRevoked = after.revoked.slice(before.revoked.length);
-  check(newlyRevoked.includes(second), 'previous export URL revoked on clip switch', newlyRevoked);
-  check(!(await urlLive(second)), 'previous export blob no longer reachable');
-  check(after.revoked.filter((u) => u === second).length === 1, 'previous export URL revoked exactly once');
-  check(after.links === 0 && after.processed === null && after.dl, 'previous clip\'s export link, preview and Download are cleared', after);
+  const newlyRevoked = after.revoked.slice(before.revoked);
+  for (const [name, u] of [['preview', processedURL], ['download', downloadURL]]) {
+    check(newlyRevoked.filter((x) => x === u).length === 1, 'previous ' + name + ' URL revoked exactly once on clip switch', newlyRevoked);
+    check(!(await urlLive(u)), 'previous ' + name + ' blob no longer reachable');
+  }
+  check(after.processed === null && after.dl, 'previous clip\'s preview and Download are cleared', after);
   check(after.src !== before.src && !after.revoked.includes(after.src) && after.ready >= 1 && await urlLive(after.src), 'the new clip\'s source URL is untouched and in use');
-  const third = await exportNow();
-  check(third && await urlLive(third), 'exporting the new clip works and its URL is live');
+  await preview(page);
+  const fresh = await page.evaluate(() => document.getElementById('processedVideo').getAttribute('src'));
+  check(fresh && await urlLive(fresh) && (await tryDownload(page)), 'previewing and downloading the new clip works');
   await loadClip(page, FIXTURE, 'third.webm');
   const final = await page.evaluate(() => window.__revoked.slice());
-  check(final.filter((u) => u === second).length === 1, 'an already released URL is never revoked twice');
-  note('clip switch revoked the old export URL once, cleared link/preview/Download, left the new source URL live; next export live');
+  check([processedURL, downloadURL].every((u) => final.filter((x) => x === u).length === 1), 'an already released URL is never revoked twice');
+  note('clip switch revoked the old preview and download URLs once each and cleared Download; new source URL live; new preview downloadable');
+  await page.close();
+});
+
+test('Hook Overlay and the separate Export button are gone', async () => {
+  const page = await openApp();
+  await loadClip(page, FIXTURE);
+  const r = await page.evaluate(() => ({
+    hookIds: ['hookEnabled', 'hookText', 'hookDuration', 'hookFontPct', 'hookHint'].filter((id) => document.getElementById(id)),
+    exportIds: ['exportBtn', 'exportStatus', 'exportProgressWrap', 'downloadArea', 'outputInfoTable'].filter((id) => document.getElementById(id)),
+    hookText: /hook/i.test(document.body.innerText),
+    exportButtons: [...document.querySelectorAll('button')].filter((b) => /export/i.test(b.textContent)).map((b) => b.textContent),
+    velHook: Object.keys(window.VEL).filter((k) => /hook/i.test(k)),
+    buttons: [...document.querySelectorAll('button')].map((b) => b.textContent.trim()).filter((t) => /Preview|Download/.test(t)),
+  }));
+  check(r.hookIds.length === 0 && !r.hookText && r.velHook.length === 0, 'no Hook Overlay UI, text or API remains', r);
+  check(r.exportIds.length === 0 && r.exportButtons.length === 0, 'no separate Export button or export area remains', r);
+  check(r.buttons.includes('Generate Preview') && r.buttons.includes('Download WebM'), 'Generate Preview and Download WebM remain', r.buttons);
+  note('hook ids/text/API: none; export controls: none; buttons: ' + r.buttons.join(', '));
   await page.close();
 });
 

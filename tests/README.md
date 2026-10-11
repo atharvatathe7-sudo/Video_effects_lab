@@ -41,16 +41,17 @@ a random colour grid that changes completely on every frame. That means:
 | fixture + app basics | 27 effect types; finite duration; exact frame timestamps |
 | D3 duration | normal WebM; duration missing from the header (resolved, then rendered); invalid file; a duration that never becomes available (element stub); an end-of-file probe that is never answered (bounded wait) |
 | D1 mid-render changes | toggling an effect, changing the output FPS, or changing a parameter mid-render leaves the preview stale; the Download handler refuses it; restoring the rendered settings re-enables Download with the same blob and exactly one render |
-| shared blob / zero re-render | preview bytes = Download (twice) = Export; Download and repeat Preview/Export construct no encoder |
+| shared blob / zero re-render | preview bytes = Download (twice via the handler, once via a real click on Download WebM); the Preview player plays the rendered file; Download and a repeat Generate Preview construct no encoder |
 | D2 source player | real pointer input plus programmatic play/scrub during a render; the player is locked; every frame is checked against ground truth; output matches the untouched render byte for byte; play/seek work afterwards; UI and player are restored after an injected mid-render exception |
 | D2 focal seek in flight | a render started while the focal preview is still seeking completes with correct frames |
 | D5 frame selection | repeated renders of a baseline at 25 fps, a baseline at 30 fps (intentional repeats), a slow speed ramp (intentional repeats) and an 11-effect stack; every read's presented-frame timestamp (and barcode, where untouched) equals the expected frame; renders are byte-identical; encoded frame count, block timestamps and WebM duration are correct |
 | D5 seekVideoTo | exact frame boundaries, just-before boundaries, many requests inside one frame, backwards jumps, end clamp, near-equal times (1.2799 s → 1.28 s must change frame). Requests within 0.5 ms *before a keyframe* are avoided on purpose: Chromium always resolves them to the keyframe, from any seek origin. |
 | D4 focal drag | Radial Zoom Blur, Impact Warp, Lens Flare and Depth of Field: Download is disabled during and after a drag, the handler refuses the stale render, and a fresh preview restores Download with the new blob (two renders in total) |
 | 27 effects render | each effect renders through the real `FrameRenderer` without error and changes pixels or timing; two untouched reference passes must agree, and a disagreement fails the test instead of being counted as a change |
-| export failure cleanup | after an injected export failure: UI unlocked, player restored, retained preview reattached, no download link |
+| preview failure cleanup | after an injected render failure on changed settings: UI unlocked, player restored, the previous preview reattached with the same blob but stale and not downloadable; a fresh preview re-enables Download |
 | D6 output FPS | whole numbers 1–120 (including `30.0`) are used as entered; blank, 0, negative, fractional (29.97, 24.5), out-of-range (121, 1000, 1e9) and typed non-numeric input are refused with a specific message and never replaced by another rate; a refused rate renders nothing; valid rates (12, 30) give the expected frame grid; an invalid edit disables Download until the rendered rate is restored |
-| D7 clip switch | loading another clip revokes the previous export's object URL exactly once and clears its link, the preview and Download; the new clip's source URL stays live; the next export works; a released URL is never revoked twice |
+| D7 clip switch | repeated downloads share one object URL; loading another clip revokes the previous preview and download URLs exactly once each and clears the preview and Download; the new clip's source URL stays live; previewing and downloading the new clip works; a released URL is never revoked twice |
+| removed features | no Hook Overlay UI, text or `window.VEL` API, and no separate Export button or export area; Generate Preview and Download WebM remain |
 
 Expected frames follow Chromium's seek semantics: the requested time is
 truncated to whole microseconds, and the frame shown is the last one starting
@@ -71,12 +72,13 @@ decision.
 
 ## Not covered here
 
-The earlier feature suites (Phase 2/3, Hook Overlay, Group 1/2 effect math,
-performance, the download workflow, and `file://` usage) were written in a
-session scratchpad. They depend on ~9 MB of pre-generated fixture videos and on
-a local ffmpeg for pixel decoding, so they are not part of this directory. This
-suite recreates their workflow invariants (shared blob, zero re-render,
+The earlier feature suites (Phase 2/3, Group 1/2 effect math, performance, the
+download workflow, and `file://` usage) were written in a session scratchpad.
+They depend on ~9 MB of pre-generated fixture videos and on a local ffmpeg for
+pixel decoding, so they are not part of this directory. They also drive the
+Export button, which no longer exists, so they would need adapting to Generate
+Preview + Download WebM before they could run again. The Hook Overlay suite is
+obsolete because the feature has been removed. This suite recreates their workflow invariants (shared blob, zero re-render,
 invalidation, frame count and duration, cleanup after errors, every effect
 rendering). It does **not** recreate their per-effect pixel and maths
-assertions, their resolution and orientation matrix, or the Hook Overlay
-pixel checks.
+assertions or their resolution and orientation matrix.
